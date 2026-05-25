@@ -1,0 +1,1263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DualEnergy · Field Cinematic</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  html, body {
+    width: 100%;
+    background: #EDECE7;
+    color: #14443A;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ============================================================
+     The scrollable container is 5× the viewport height.
+     The visual layer is sticky-pinned to the viewport.
+     ============================================================ */
+  #scrollytelling {
+    position: relative;
+    height: 500vh;          /* total scroll length on desktop */
+    width: 100%;
+    background: #EDECE7;
+  }
+  /* Mobile / tablet portrait: shorter cinematic so it's not a marathon to scroll */
+  @media (max-width: 900px) {
+    #scrollytelling { height: 320vh; }
+  }
+  #pinned {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    background: #EDECE7;
+    /* Force hardware acceleration — fixes iOS Safari sticky jitter and
+       improves overall touch-scroll smoothness on all mobile browsers */
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    will-change: transform;
+  }
+  #scene {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  #scene canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  /* ============================================================
+     Scroll hint at the start (fades out after first scroll)
+     ============================================================ */
+  .scroll-hint {
+    position: absolute;
+    bottom: 36px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    color: #14443A;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    opacity: 0.55;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+    text-align: center;
+  }
+  .scroll-hint.hide { opacity: 0; }
+  .scroll-hint .arrow {
+    display: block;
+    margin: 14px auto 0;
+    width: 1px; height: 36px;
+    background: linear-gradient(to bottom, rgba(20,68,58,0.5), rgba(20,68,58,0));
+    animation: scrollPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes scrollPulse {
+    0%, 100% { transform: scaleY(1); opacity: 0.7; }
+    50%      { transform: scaleY(0.5) translateY(8px); opacity: 0.2; }
+  }
+
+  /* ============================================================
+     Logo reveal — fixed in viewport, opacity driven by scroll
+     ============================================================ */
+  .logo-reveal {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  .logo-reveal .logo-wrap {
+    width: min(620px, 78vw);
+    transform: scale(0.92) translateY(12px);
+    transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .logo-reveal.show .logo-wrap {
+    transform: scale(1) translateY(0);
+  }
+  .logo-reveal svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .logo-reveal .tagline {
+    margin-top: 32px;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 1s ease 0.3s, transform 1s ease 0.3s;
+  }
+  .logo-reveal .tagline .primary {
+    display: block;
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: clamp(18px, 1.7vw, 24px);
+    color: #14443A;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+  }
+  .logo-reveal .tagline .secondary {
+    display: block;
+    margin-top: 10px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-weight: 400;
+    font-size: clamp(10px, 0.85vw, 12px);
+    color: #14443A;
+    opacity: 0.6;
+    letter-spacing: 0.06em;
+    text-transform: none;
+    line-height: 1.5;
+  }
+  .logo-reveal.show .tagline {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Dim overlay that fades in behind logo (driven by scroll) */
+  .scene-dim {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    background: #EDECE7;
+    opacity: 0;
+    pointer-events: none;
+  }
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;1,300&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+
+</head>
+<body>
+
+<div id="scrollytelling">
+  <div id="pinned">
+
+    <!-- 3D canvas mounts into here -->
+    <div id="scene"></div>
+
+    <!-- Scroll hint (auto-hides on first scroll) -->
+    <div class="scroll-hint" id="scrollHint">
+      Scroll to explore
+      <span class="arrow"></span>
+    </div>
+
+    <!-- Dim overlay for final reveal -->
+    <div class="scene-dim" id="sceneDim"></div>
+
+    <!-- Logo reveal (final state) -->
+    <div class="logo-reveal" id="logoReveal">
+      <div class="logo-wrap">
+        <!-- Inlined DualEnergy logo -->
+        <svg viewBox="0 0 1238 214" xmlns="http://www.w3.org/2000/svg" fill="none">
+          <g clip-path="url(#clip0_logo)">
+            <path d="M220.939 127.124C220.376 133.834 216.354 140.469 210.314 143.538C209.217 144.095 203.794 146.166 203.04 146.166H174.476C181.811 156.518 201.729 169.764 201.729 183.108C201.729 196.453 190.182 205.083 177.904 204.04C169.548 203.331 164.665 197.771 159.219 192.264C144.808 177.708 124.89 157.348 112.383 141.604C104.591 131.786 101.864 121.944 110.471 111.486C129.658 94.7596 147.558 71.9621 166.844 55.8904C189.702 36.848 215.524 62.0906 199.924 82.8772C194.09 90.6465 184.142 96.3058 178.285 104.273H204.563C204.868 104.273 209.141 106.139 209.918 106.535C216.613 109.948 220.399 115.851 220.939 123.316C221.023 124.473 221.038 125.974 220.939 127.124Z" fill="#8AE932"/>
+            <path d="M128.584 9.25922C151.617 6.13627 166.288 32.0796 150.086 49.8042L65.0281 131.557C41.606 147.057 13.6747 120.276 31.2851 97.052L113.525 17.0437C117.897 13.3267 122.688 10.0514 128.584 9.2516V9.25922Z" fill="#0E5747"/>
+            <path d="M19.6693 144.84C34.1567 142.746 55.4994 145.092 70.4743 145.434C82.7452 145.716 101.612 142.563 111.263 150.347C127.434 163.38 120.518 187.107 100.904 191.045C75.7985 189.833 48.0729 192.332 23.2493 190.374C-6.2816 188.043 -5.32186 148.458 19.6693 144.84Z" fill="#0E5747"/>
+          </g>
+          <path d="M284.709 153V58.3542H326.083C336.359 58.3542 345.373 60.3373 353.125 64.3034C360.877 68.2695 366.916 73.768 371.243 80.7988C375.569 87.8296 377.733 96.1224 377.733 105.677C377.733 115.142 375.569 123.435 371.243 130.555C366.916 137.586 360.877 143.085 353.125 147.051C345.373 151.017 336.359 153 326.083 153H284.709ZM302.287 138.127H325.272C332.393 138.127 338.522 136.775 343.66 134.071C348.888 131.367 352.9 127.581 355.694 122.713C358.578 117.846 360.021 112.167 360.021 105.677C360.021 99.097 358.578 93.4183 355.694 88.6409C352.9 83.7734 348.888 79.9876 343.66 77.2834C338.522 74.5792 332.393 73.2271 325.272 73.2271H302.287V138.127Z" fill="#14443A"/>
+          <path d="M435.76 154.352C422.78 154.352 412.595 150.702 405.203 143.4C397.902 136.099 394.251 125.553 394.251 111.762V58.3542H411.829V111.085C411.829 120.82 413.902 127.896 418.048 132.313C422.285 136.73 428.234 138.938 435.896 138.938C443.557 138.938 449.462 136.73 453.608 132.313C457.754 127.896 459.828 120.82 459.828 111.085V58.3542H477.134V111.762C477.134 125.553 473.438 136.099 466.047 143.4C458.746 150.702 448.65 154.352 435.76 154.352Z" fill="#14443A"/>
+          <path d="M485.032 153L527.623 58.3542H544.93L587.655 153H569.267L532.626 67.6836H539.656L503.15 153H485.032ZM504.637 131.096L509.37 117.305H560.479L565.211 131.096H504.637Z" fill="#14443A"/>
+          <path d="M598.34 153V58.3542H615.917V138.127H665.403V153H598.34Z" fill="#14443A"/>
+          <path d="M689.337 100.674H739.364V109.193H689.337V100.674ZM690.419 144.347H747.342V153H680.414V58.3542H745.314V67.0076H690.419V144.347Z" fill="#14443A"/>
+          <path d="M769.509 153V58.3542H777.756L843.062 140.561H838.735V58.3542H848.605V153H840.358L775.187 70.7934H779.514V153H769.509Z" fill="#14443A"/>
+          <path d="M887.069 100.674H937.096V109.193H887.069V100.674ZM888.151 144.347H945.073V153H878.145V58.3542H943.045V67.0076H888.151V144.347Z" fill="#14443A"/>
+          <path d="M967.24 153V58.3542H1002.66C1010.69 58.3542 1017.58 59.6612 1023.35 62.2753C1029.12 64.7992 1033.54 68.4948 1036.6 73.3623C1039.76 78.1397 1041.33 83.9537 1041.33 90.8042C1041.33 97.4745 1039.76 103.243 1036.6 108.111C1033.54 112.888 1029.12 116.584 1023.35 119.198C1017.58 121.722 1010.69 122.984 1002.66 122.984H972.784L977.246 118.387V153H967.24ZM1031.87 153L1007.53 118.657H1018.35L1042.82 153H1031.87ZM977.246 119.198L972.784 114.466H1002.39C1011.86 114.466 1019.02 112.392 1023.89 108.246C1028.85 104.1 1031.33 98.2858 1031.33 90.8042C1031.33 83.2326 1028.85 77.3735 1023.89 73.2271C1019.02 69.0807 1011.86 67.0076 1002.39 67.0076H972.784L977.246 62.2753V119.198Z" fill="#14443A"/>
+          <path d="M1105.11 153.811C1097.9 153.811 1091.22 152.64 1085.1 150.296C1079.06 147.862 1073.78 144.482 1069.28 140.155C1064.86 135.829 1061.39 130.736 1058.86 124.877C1056.43 119.018 1055.21 112.618 1055.21 105.677C1055.21 98.7364 1056.43 92.3366 1058.86 86.4776C1061.39 80.6185 1064.9 75.5257 1069.41 71.199C1073.92 66.8723 1079.19 63.5372 1085.23 61.1936C1091.36 58.7598 1098.03 57.543 1105.24 57.543C1112.45 57.543 1119.03 58.6697 1124.98 60.9232C1131.02 63.1767 1136.16 66.6019 1140.4 71.199L1134.18 77.5538C1130.21 73.5877 1125.84 70.7483 1121.06 69.0357C1116.28 67.323 1111.15 66.4667 1105.65 66.4667C1099.79 66.4667 1094.38 67.4582 1089.42 69.4413C1084.55 71.3342 1080.27 74.0835 1076.58 77.689C1072.97 81.2044 1070.13 85.3508 1068.06 90.1282C1066.08 94.8154 1065.08 99.9984 1065.08 105.677C1065.08 111.266 1066.08 116.449 1068.06 121.226C1070.13 126.003 1072.97 130.195 1076.58 133.8C1080.27 137.316 1084.55 140.065 1089.42 142.048C1094.38 143.941 1099.74 144.888 1105.51 144.888C1110.92 144.888 1116.01 144.076 1120.79 142.454C1125.66 140.831 1130.12 138.082 1134.18 134.206L1139.85 141.778C1135.35 145.744 1130.07 148.764 1124.04 150.837C1118 152.82 1111.69 153.811 1105.11 153.811ZM1130.26 140.561V105.677H1139.85V141.778L1130.26 140.561Z" fill="#14443A"/>
+          <path d="M1189.4 153V117.846L1191.7 124.065L1151.54 58.3542H1162.22L1197.51 116.088H1191.83L1227.12 58.3542H1237.13L1196.97 124.065L1199.27 117.846V153H1189.4Z" fill="#14443A"/>
+          <defs>
+            <clipPath id="clip0_logo">
+              <rect width="220" height="195.123" fill="white" transform="translate(1 9)"/>
+            </clipPath>
+          </defs>
+        </svg>
+        <div class="tagline"><span class="primary">The predictive infrastructure for agrivoltaics.</span><span class="secondary">From first permit to final harvest — one platform, twenty-five years.</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ THREE.JS ============ -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+(function initCinematicScene() {
+  // ============================================================
+  // DEVICE CLASS DETECTION
+  //
+  // Three tiers of device:
+  //   - 'desktop': big screen, mouse, plenty of GPU
+  //   - 'tablet':  medium screen, touch, moderate GPU
+  //   - 'phone':   small screen, touch, often constrained GPU
+  //
+  // We use viewport width + pointer media query, not user-agent
+  // sniffing (which is unreliable). Hardware concurrency is the
+  // tie-breaker for tablets that *might* be low-spec.
+  // ============================================================
+  const vw = window.innerWidth;
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const cores = navigator.hardwareConcurrency || 4;
+
+  let deviceClass;
+  if (vw < 700)                              deviceClass = 'phone';
+  else if (vw < 1100 && coarsePointer)       deviceClass = 'tablet';
+  else if (coarsePointer && cores <= 4)      deviceClass = 'tablet';
+  else                                       deviceClass = 'desktop';
+
+  const isPhone   = deviceClass === 'phone';
+  const isTablet  = deviceClass === 'tablet';
+
+  // ============================================================
+  // CONFIG  (adaptive by device class)
+  // ============================================================
+  const CONFIG = {
+    containerId: 'scene',
+
+    // Field — wider for the bird's-eye opening to sell scale (multiple
+    // hectares, not a single plot). Rows extend into the haze.
+    rows: 5,
+    cols: 10,
+    rowSpacing: 6.2,
+    colSpacing: 3.0,
+
+    // Panel motion (subtle)
+    baseTilt: 0.32,
+    trackingSway: 0.05,
+    trackingSpeed: 0.10,
+
+    // Crops — slightly thinned on mobile to keep memory + draw calls in check
+    cropStripCount: isPhone ? 7 : 9,
+    cropPatchesPerStrip: isPhone ? 16 : (isTablet ? 20 : 24),
+
+    // Performance — adaptive
+    shadowsEnabled: !isPhone,
+    shadowMapSize: isPhone ? 0 : (isTablet ? 1024 : 2048),
+    pixelRatio: isPhone
+      ? Math.min(window.devicePixelRatio, 1.5)
+      : Math.min(window.devicePixelRatio, 2),
+
+    // Data layer — skip the heaviest particle work on phones
+    dataTrails: !isPhone,        // 170+ ascending particles → mobile killer
+    trackerLEDs: true,           // small + cheap, keep on all devices
+    groundRipples: !isPhone,     // 18 transparent meshes → noticeable on weak GPUs
+
+    // Grain plants — fewer on smaller devices
+    fieldGrainDensity: isPhone ? 1.5 : (isTablet ? 2 : 3),
+
+    // Scroll smoothing — lower = more "filmic" lag, higher = snappier
+    scrollDamping: 0.075,
+  };
+
+  // ============================================================
+  // COLORS  (same brand palette as before)
+  // ============================================================
+  const COLORS = {
+    panelFace:   '#3A3D42',
+    panelFrame:  '#1F2125',
+    panelLine:   '#15171A',
+    pole:        '#4A4D52',
+    sensorStake: '#8A8E93',
+    sensorBox:   '#A8ACB1',
+    lime:        '#8FE82A',
+    limeDark:    '#0E5747',
+    limeMid:     '#3DA638',
+    cream:       '#EDECE7',
+    sunWarm:     '#FFF4D9',
+  };
+
+  // ============================================================
+  // CAMERA KEYFRAMES — gentle continuous descent + approach
+  //
+  // No side-switches, no dramatic swoops. The camera follows one
+  // smooth arc: high overhead → gradual descent staying on one
+  // side of the field → low approach under a panel where a grain
+  // plant grows into the foreground → gentle pull back for the
+  // logo reveal.
+  // ============================================================
+  const cameraKeyframes = [
+    { t: 0.00, pos: [ 0,  52, 0.01], target: [ 0,   0,   0  ], fov: 52 },  // higher overhead
+    { t: 0.15, pos: [ 4,  46, 6   ], target: [ 0,   0.3, 1.5], fov: 50 },  // gentle drift
+    { t: 0.32, pos: [ 8,  32, 12  ], target: [ 1,   0.7, 3  ], fov: 47 },  // gradual descent
+    { t: 0.50, pos: [ 7,  16, 12  ], target: [ 2,   1.3, 4  ], fov: 43 },  // mid-altitude oblique
+    { t: 0.65, pos: [ 4,   7,  10 ], target: [ 2,   1.7, 5  ], fov: 39 },  // gentle approach
+    { t: 0.78, pos: [ 3,  1.9, 7.5], target: [ 2,   1.6, 5.2], fov: 36 },  // under-panel, plant in foreground
+    { t: 0.88, pos: [ 3.5, 5,   11], target: [ 1.5, 1.2, 3  ], fov: 39 },  // gentle pull up
+    { t: 1.00, pos: [ 0,  10,  17 ], target: [ 0,   1,   0  ], fov: 43 },  // final wide for logo
+  ];
+
+  // ============================================================
+  // CONTAINER
+  // ============================================================
+  const container = document.getElementById(CONFIG.containerId);
+  let w = container.clientWidth || window.innerWidth;
+  let h = container.clientHeight || window.innerHeight;
+
+  // ============================================================
+  // SCENE
+  // ============================================================
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(COLORS.cream);
+  scene.fog = new THREE.Fog(COLORS.cream, 35, 110);
+
+  // ============================================================
+  // CAMERA
+  // ============================================================
+  const camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 200);
+  const initialKey = cameraKeyframes[0];
+  camera.position.set(...initialKey.pos);
+  camera.lookAt(new THREE.Vector3(...initialKey.target));
+
+  // ============================================================
+  // RENDERER
+  // ============================================================
+  const renderer = new THREE.WebGLRenderer({ antialias: !isPhone, alpha: false });
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(CONFIG.pixelRatio);
+  renderer.shadowMap.enabled = CONFIG.shadowsEnabled;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  container.appendChild(renderer.domElement);
+
+  // ============================================================
+  // LIGHTING
+  // ============================================================
+  const sun = new THREE.DirectionalLight(COLORS.sunWarm, 1.8);
+  sun.position.set(11, 18, 7);
+  if (CONFIG.shadowsEnabled) {
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(CONFIG.shadowMapSize, CONFIG.shadowMapSize);
+    sun.shadow.camera.left = -32;
+    sun.shadow.camera.right = 32;
+    sun.shadow.camera.top = 28;
+    sun.shadow.camera.bottom = -28;
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 60;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02;
+  }
+  scene.add(sun);
+
+  // On phones (shadows off) we boost ambient+hemisphere to compensate
+  // for the lost contrast that shadows would normally provide
+  const hemiIntensity    = CONFIG.shadowsEnabled ? 0.50 : 0.70;
+  const ambientIntensity = CONFIG.shadowsEnabled ? 0.18 : 0.32;
+  scene.add(new THREE.HemisphereLight('#FFFFFF', COLORS.limeDark, hemiIntensity));
+  scene.add(new THREE.AmbientLight('#FFFFFF', ambientIntensity));
+
+  // ============================================================
+  // GROUND
+  // ============================================================
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(220, 220),
+    new THREE.MeshStandardMaterial({
+      color: COLORS.cream, roughness: 0.96, metalness: 0,
+    }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // ============================================================
+  // SHARED MATERIALS
+  // ============================================================
+  const matPanel       = new THREE.MeshStandardMaterial({ color: COLORS.panelFace,  roughness: 0.42, metalness: 0.32 });
+  const matFrame       = new THREE.MeshStandardMaterial({ color: COLORS.panelFrame, roughness: 0.55, metalness: 0.42 });
+  const matCellLine    = new THREE.MeshStandardMaterial({ color: COLORS.panelLine,  roughness: 0.80, metalness: 0    });
+  const matPole        = new THREE.MeshStandardMaterial({ color: COLORS.pole,        roughness: 0.65, metalness: 0.35 });
+  const matSensorStake = new THREE.MeshStandardMaterial({ color: COLORS.sensorStake, roughness: 0.65, metalness: 0.35 });
+  const matSensorBox   = new THREE.MeshStandardMaterial({ color: COLORS.sensorBox,   roughness: 0.55, metalness: 0.4  });
+  const matSensorLED   = new THREE.MeshStandardMaterial({
+    color: COLORS.lime, emissive: COLORS.lime, emissiveIntensity: 0.6,
+    roughness: 0.3, metalness: 0,
+  });
+  const matCropLime     = new THREE.MeshStandardMaterial({ color: COLORS.lime,     roughness: 0.85, metalness: 0, flatShading: true });
+  const matCropLimeDark = new THREE.MeshStandardMaterial({ color: COLORS.limeDark, roughness: 0.85, metalness: 0, flatShading: true });
+  const matCropLimeMid  = new THREE.MeshStandardMaterial({ color: COLORS.limeMid,  roughness: 0.85, metalness: 0, flatShading: true });
+
+  // Grain plant materials — the hero plant that grows under a panel
+  const matGrainStem  = new THREE.MeshStandardMaterial({ color: '#4A7A1F', roughness: 0.85, metalness: 0, flatShading: true });
+  const matGrainLeaf  = new THREE.MeshStandardMaterial({ color: '#6FB52A', roughness: 0.85, metalness: 0, flatShading: true, side: THREE.DoubleSide });
+  const matGrainHead  = new THREE.MeshStandardMaterial({ color: '#E8C547', roughness: 0.78, metalness: 0, flatShading: true });
+  const matGrainSpike = new THREE.MeshStandardMaterial({ color: '#D4A82A', roughness: 0.78, metalness: 0, flatShading: true });
+
+  // ============================================================
+  // TRACKER FACTORY
+  // ============================================================
+  function createTracker() {
+    const group = new THREE.Group();
+    const POLE_H = 2.1;
+
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07, 0.07, POLE_H, 14),
+      matPole,
+    );
+    pole.position.y = POLE_H / 2;
+    pole.castShadow = true;
+    group.add(pole);
+
+    const pivot = new THREE.Group();
+    pivot.position.y = POLE_H + 0.05;
+
+    const tube = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.045, 0.045, 2.5, 12),
+      matFrame,
+    );
+    tube.rotation.z = Math.PI / 2;
+    tube.castShadow = true;
+    pivot.add(tube);
+
+    const PANEL_W = 2.35, PANEL_D = 0.06, PANEL_H = 1.18;
+    const panel = new THREE.Mesh(
+      new THREE.BoxGeometry(PANEL_W, PANEL_D, PANEL_H),
+      matPanel,
+    );
+    panel.castShadow = true;
+    panel.receiveShadow = true;
+    pivot.add(panel);
+
+    const lineY = PANEL_D / 2 + 0.002;
+    for (let i = 1; i < 6; i++) {
+      const x = -PANEL_W / 2 + (PANEL_W * i / 6);
+      const ln = new THREE.Mesh(
+        new THREE.BoxGeometry(0.012, 0.002, PANEL_H * 0.94),
+        matCellLine,
+      );
+      ln.position.set(x, lineY, 0);
+      pivot.add(ln);
+    }
+    const hline = new THREE.Mesh(
+      new THREE.BoxGeometry(PANEL_W * 0.94, 0.002, 0.012),
+      matCellLine,
+    );
+    hline.position.set(0, lineY, 0);
+    pivot.add(hline);
+
+    group.add(pivot);
+    group.userData.pivot = pivot;
+    return group;
+  }
+
+  // ============================================================
+  // SENSOR BOX FACTORY
+  // ============================================================
+  function createSensorBox() {
+    const group = new THREE.Group();
+    const STAKE_H = 0.6;
+
+    const stake = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, STAKE_H, 8),
+      matSensorStake,
+    );
+    stake.position.y = STAKE_H / 2;
+    stake.castShadow = true;
+    group.add(stake);
+
+    const ENC_W = 0.42, ENC_H = 0.26, ENC_D = 0.18;
+    const enc = new THREE.Mesh(
+      new THREE.BoxGeometry(ENC_W, ENC_H, ENC_D),
+      matSensorBox,
+    );
+    enc.position.y = STAKE_H + ENC_H / 2;
+    enc.castShadow = true;
+    enc.receiveShadow = true;
+    group.add(enc);
+
+    const led = new THREE.Mesh(
+      new THREE.SphereGeometry(0.024, 12, 12),
+      matSensorLED.clone(),
+    );
+    led.position.set(ENC_W / 2 - 0.08, STAKE_H + ENC_H / 2 + 0.02, ENC_D / 2 + 0.001);
+    group.add(led);
+
+    const tinySolar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.30, 0.012, 0.15),
+      matPanel,
+    );
+    tinySolar.position.set(0.04, STAKE_H + ENC_H + 0.02, 0);
+    tinySolar.rotation.x = -0.18;
+    tinySolar.castShadow = true;
+    group.add(tinySolar);
+
+    const ANT_H = 0.22;
+    const ant = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.005, 0.005, ANT_H, 6),
+      matSensorStake,
+    );
+    ant.position.set(-ENC_W / 2 + 0.04, STAKE_H + ENC_H + ANT_H / 2, 0);
+    ant.castShadow = true;
+    group.add(ant);
+
+    const antTip = new THREE.Mesh(
+      new THREE.SphereGeometry(0.014, 10, 10),
+      matSensorLED.clone(),
+    );
+    antTip.position.set(-ENC_W / 2 + 0.04, STAKE_H + ENC_H + ANT_H, 0);
+    group.add(antTip);
+
+    group.userData.leds = [led, antTip];
+    return group;
+  }
+
+  // ============================================================
+  // GRAIN PLANT FACTORY — the plant that grows under the panel
+  //
+  // Stylized wheat/barley: tapered stem, 4 leaves, ovoid grain
+  // head at the top with spikelet details. Designed to read at
+  // close camera range (~2m away).
+  // ============================================================
+  function createGrainPlant() {
+    const group = new THREE.Group();
+    const STEM_H = 1.05;
+
+    // Stem (slightly tapered top to bottom)
+    const stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.014, 0.020, STEM_H, 7),
+      matGrainStem,
+    );
+    stem.position.y = STEM_H / 2;
+    stem.castShadow = true;
+    group.add(stem);
+
+    // Leaves — elongated thin boxes angled outward at varying heights
+    const leafSpecs = [
+      { y: 0.20, az: 0.0,         tilt: 0.65, len: 0.36 },
+      { y: 0.35, az: Math.PI * 0.7, tilt: 0.55, len: 0.32 },
+      { y: 0.50, az: Math.PI * 1.3, tilt: 0.50, len: 0.30 },
+      { y: 0.65, az: Math.PI * 0.2, tilt: 0.45, len: 0.26 },
+    ];
+    for (const ls of leafSpecs) {
+      const leaf = new THREE.Mesh(
+        new THREE.BoxGeometry(0.025, ls.len, 0.005),
+        matGrainLeaf,
+      );
+      // Orient: leaf extends "up and out" from stem
+      // Pivot at the base end, so place geometry shifted up by len/2 and
+      // rotate from that base point
+      const leafGroup = new THREE.Group();
+      leaf.position.y = ls.len / 2;
+      leafGroup.add(leaf);
+
+      // Position around stem
+      leafGroup.position.set(
+        Math.cos(ls.az) * 0.022,
+        ls.y,
+        Math.sin(ls.az) * 0.022,
+      );
+      // Tilt outward + rotate around stem axis
+      leafGroup.rotation.y = ls.az + Math.PI / 2;
+      leafGroup.rotation.x = ls.tilt;
+      leaf.castShadow = true;
+      group.add(leafGroup);
+    }
+
+    // Grain head — ovoid sphere at top of stem
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.055, 10, 8),
+      matGrainHead,
+    );
+    head.position.y = STEM_H + 0.10;
+    head.scale.set(0.7, 2.0, 0.7);  // elongated vertically
+    head.castShadow = true;
+    group.add(head);
+
+    // Spikelets — small outward-pointing cones around the head
+    const N_SPIKES = 8;
+    for (let i = 0; i < N_SPIKES; i++) {
+      const angle = (i / N_SPIKES) * Math.PI * 2;
+      const y = STEM_H + 0.04 + (i % 2) * 0.07;
+      const spike = new THREE.Mesh(
+        new THREE.ConeGeometry(0.012, 0.06, 4),
+        matGrainSpike,
+      );
+      spike.position.set(
+        Math.cos(angle) * 0.045,
+        y,
+        Math.sin(angle) * 0.045,
+      );
+      // Point outward + slightly up
+      spike.rotation.z = -Math.PI / 2 + 0.4;
+      spike.rotation.y = -angle;
+      spike.castShadow = true;
+      group.add(spike);
+    }
+
+    return group;
+  }
+
+  // ============================================================
+  // PLACE TRACKERS (wider field for bird's-eye intro)
+  // ============================================================
+  const trackers = [];
+  for (let r = 0; r < CONFIG.rows; r++) {
+    for (let c = 0; c < CONFIG.cols; c++) {
+      const t = createTracker();
+      t.position.set(
+        (c - (CONFIG.cols - 1) / 2) * CONFIG.colSpacing,
+        0,
+        (r - (CONFIG.rows - 1) / 2) * CONFIG.rowSpacing,
+      );
+      // Tiny per-tracker tilt offset for variety
+      t.userData.tiltOffset = (Math.random() - 0.5) * 0.06;
+      scene.add(t);
+      trackers.push(t);
+    }
+  }
+
+  // ============================================================
+  // CROPS
+  // ============================================================
+  function makeCropMesh(material) {
+    const r = 0.18 + Math.random() * 0.16;
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), material);
+    m.scale.y = 0.6 + Math.random() * 0.4;
+    m.rotation.y = Math.random() * Math.PI * 2;
+    m.rotation.x = (Math.random() - 0.5) * 0.3;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    m.userData.radius = r;
+    return m;
+  }
+
+  function createCropPatch(material) {
+    const group = new THREE.Group();
+    const n = 4 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < n; i++) {
+      const m = makeCropMesh(material);
+      m.position.set(
+        (Math.random() - 0.5) * 1.1,
+        m.userData.radius * m.scale.y * 0.7,
+        (Math.random() - 0.5) * 0.55,
+      );
+      group.add(m);
+    }
+    return group;
+  }
+
+  const CROP_MATS = [matCropLime, matCropLimeDark, matCropLimeMid];
+  const stripStep = CONFIG.rowSpacing / 2;
+
+  for (let s = 0; s < CONFIG.cropStripCount; s++) {
+    const z = (s - (CONFIG.cropStripCount - 1) / 2) * stripStep;
+    for (let i = 0; i < CONFIG.cropPatchesPerStrip; i++) {
+      const x = (i - (CONFIG.cropPatchesPerStrip - 1) / 2) * 1.35
+              + (Math.random() - 0.5) * 0.45;
+      const mat = CROP_MATS[(s * 7 + i * 3) % CROP_MATS.length];
+      const patch = createCropPatch(mat);
+      patch.position.set(
+        x,
+        0,
+        z + (Math.random() - 0.5) * 0.9,
+      );
+      scene.add(patch);
+    }
+  }
+
+  // ============================================================
+  // SENSOR BOXES — distributed across the (now wider) field.
+  // Keep one near the camera focal point (~x=2, z=5) so the
+  // close-up segment has a sensor in frame.
+  // ============================================================
+  const sensorBoxes = [];
+  const sensorPlacements = [
+    // Hero one — visible in close-up shot (camera target at (2, 1.6, 5.2))
+    { x:  2.4, z:  6.0,  r: -0.30 },
+    // Spread across the field
+    { x: -2.6, z: -0.5,  r:  0.55 },
+    { x:  5.8, z:  5.5,  r:  0.30 },
+    { x: -5.0, z:  0.7,  r: -0.45 },
+    { x:  8.2, z: -3.5,  r:  0.10 },
+    { x: -8.5, z: -6.0,  r:  0.85 },
+    { x:  0.0, z: -9.0,  r: -0.20 },
+    { x: 10.5, z:  9.0,  r:  0.40 },
+    { x: -3.2, z: 10.5,  r: -0.80 },
+  ];
+  for (const p of sensorPlacements) {
+    const sb = createSensorBox();
+    sb.position.set(p.x, 0, p.z);
+    sb.rotation.y = p.r;
+    scene.add(sb);
+    sensorBoxes.push(sb);
+  }
+
+  const allLEDs = [];
+  sensorBoxes.forEach((sb, idx) => {
+    sb.userData.leds.forEach((led, j) => {
+      led.userData.phase = idx * 1.7 + j * 0.9;
+      allLEDs.push(led);
+    });
+  });
+
+  // ============================================================
+  // GRAIN PLANT — positioned where the camera approaches close
+  // at progress ~0.78. The camera target there is (2, 1.6, 5.2),
+  // so the plant sits in the foreground of that framing.
+  // It grows in via scale animation between progress 0.55 → 0.80.
+  // ============================================================
+  const grainPlant = createGrainPlant();
+  grainPlant.position.set(2, 0, 5.2);
+  grainPlant.scale.setScalar(0.001);  // starts invisible
+  scene.add(grainPlant);
+
+  // A second smaller grain plant nearby for visual richness
+  const grainPlant2 = createGrainPlant();
+  grainPlant2.position.set(2.35, 0, 4.85);
+  grainPlant2.rotation.y = 1.2;
+  grainPlant2.scale.setScalar(0.001);
+  scene.add(grainPlant2);
+
+  // A third even smaller one to break the symmetry
+  const grainPlant3 = createGrainPlant();
+  grainPlant3.position.set(1.7, 0, 5.5);
+  grainPlant3.rotation.y = -0.6;
+  grainPlant3.scale.setScalar(0.001);
+  scene.add(grainPlant3);
+
+  const grainPlants = [grainPlant, grainPlant2, grainPlant3];
+
+  // ============================================================
+  // FIELD GRAIN — additional grain plants scattered across the
+  // whole field, between tracker rows and in the strips between
+  // panels. These don't grow on scroll (only the close-up trio
+  // does); they're static and already full-grown, giving the
+  // bird's-eye view a sense of an active cultivated field.
+  // ============================================================
+  const FIELD_GRAIN_DENSITY = CONFIG.fieldGrainDensity;
+  const fieldGrainStrips = CONFIG.cropStripCount;
+  const fieldGrainStripStep = CONFIG.rowSpacing / 2;
+
+  for (let s = 0; s < fieldGrainStrips; s++) {
+    const z = (s - (fieldGrainStrips - 1) / 2) * fieldGrainStripStep;
+    for (let c = 0; c < CONFIG.cols * FIELD_GRAIN_DENSITY; c++) {
+      const xBase = (c / FIELD_GRAIN_DENSITY - (CONFIG.cols - 1) / 2) * CONFIG.colSpacing;
+      const x = xBase + (Math.random() - 0.5) * (CONFIG.colSpacing * 0.6);
+      const zJitter = z + (Math.random() - 0.5) * 1.0;
+
+      // Skip grain plants that would land on the close-up trio's spot
+      // (radius 1.5 around x=2, z=5.2) so the hero plants stay clear
+      const dx = x - 2;
+      const dz = zJitter - 5.2;
+      if (dx * dx + dz * dz < 1.5 * 1.5) continue;
+
+      // Skip if very close to a tracker pole
+      let tooCloseToPole = false;
+      for (const tr of trackers) {
+        const pdx = x - tr.position.x;
+        const pdz = zJitter - tr.position.z;
+        if (pdx * pdx + pdz * pdz < 0.25 * 0.25) {
+          tooCloseToPole = true;
+          break;
+        }
+      }
+      if (tooCloseToPole) continue;
+
+      // Skip if close to a sensor box
+      let tooCloseToSensor = false;
+      for (const sb of sensorBoxes) {
+        const sdx = x - sb.position.x;
+        const sdz = zJitter - sb.position.z;
+        if (sdx * sdx + sdz * sdz < 0.5 * 0.5) {
+          tooCloseToSensor = true;
+          break;
+        }
+      }
+      if (tooCloseToSensor) continue;
+
+      const plant = createGrainPlant();
+      plant.position.set(x, 0, zJitter);
+      plant.rotation.y = Math.random() * Math.PI * 2;
+      // Subtle scale variation — most around 0.65, some smaller for variety
+      const scale = 0.55 + Math.random() * 0.25;
+      plant.scale.setScalar(scale);
+      scene.add(plant);
+    }
+  }
+
+  // ============================================================
+  // DATA LAYER — the telemetry / engine visualization.
+  //
+  // This is what tells the viewer this is a *predictive
+  // infrastructure*, not just a pretty farm. Three components:
+  //
+  //   1. Tracker status LEDs — small lime dots at the base of
+  //      every panel pole, pulsing out of phase. Reads as "every
+  //      panel is instrumented".
+  //   2. Data trails — vertical particle streams rising from
+  //      sensor boxes and a subset of trackers. Lime points
+  //      fading as they ascend. Reads as "data flowing up".
+  //   3. Ground ripples — subtle expanding rings on the ground
+  //      at sensor positions. Reads as "the engine sensing".
+  // ============================================================
+
+  const dataLayerObjects = [];  // store animated parts for the tick loop
+
+  // ---- 1. Tracker status LEDs ----
+  const matTrackerLED = new THREE.MeshStandardMaterial({
+    color: COLORS.lime, emissive: COLORS.lime, emissiveIntensity: 0.7,
+    roughness: 0.3, metalness: 0,
+  });
+  trackers.forEach((tr, idx) => {
+    const led = new THREE.Mesh(
+      new THREE.SphereGeometry(0.045, 8, 8),
+      matTrackerLED.clone(),
+    );
+    led.position.set(tr.position.x + 0.10, 0.22, tr.position.z);
+    led.userData.phase = idx * 0.37;
+    scene.add(led);
+    dataLayerObjects.push({ kind: 'trackerLED', mesh: led });
+  });
+
+  // ---- 2. Data trail factory ----
+  // Each trail is a column of N small lime spheres that ascend and
+  // fade. We pre-build all spheres once and animate their Y + opacity
+  // in the tick loop so they read as continuous streaming particles.
+  function createDataTrail(originX, originZ, height = 6.0, particleCount = 7) {
+    const particles = [];
+    const matTrailParticle = new THREE.MeshBasicMaterial({
+      color: COLORS.lime, transparent: true, opacity: 0.8,
+    });
+    for (let i = 0; i < particleCount; i++) {
+      const p = new THREE.Mesh(
+        new THREE.SphereGeometry(0.045, 6, 6),
+        matTrailParticle.clone(),
+      );
+      p.position.set(originX, 0.3, originZ);
+      // Stagger their starting phase so they're spread along the trail
+      p.userData.basePhase = i / particleCount;
+      p.userData.originX = originX;
+      p.userData.originZ = originZ;
+      p.userData.height = height;
+      scene.add(p);
+      particles.push(p);
+    }
+    return particles;
+  }
+
+  // Trails rising from each sensor box (the obvious "transmission" gesture)
+  // Skipped on phones to save ~170 particles + 18 transparent meshes worth
+  // of overdraw cost. The tracker LEDs still pulse, so the instrumentation
+  // story still reads, just without the rising columns.
+  if (CONFIG.dataTrails) {
+    sensorBoxes.forEach((sb) => {
+      const particles = createDataTrail(sb.position.x, sb.position.z, 7.5, 9);
+      dataLayerObjects.push({ kind: 'trail', particles, speed: 0.18 });
+    });
+
+    // Trails rising from a subset of trackers (every 4th one) — every panel
+    // is instrumented, but trails on every one would be visually noisy
+    trackers.forEach((tr, idx) => {
+      if (idx % 4 !== 0) return;
+      const particles = createDataTrail(
+        tr.position.x + 0.30,  // slight offset from pole
+        tr.position.z + 0.10,
+        6.0,
+        7,
+      );
+      dataLayerObjects.push({ kind: 'trail', particles, speed: 0.15 });
+    });
+  }
+
+  // ---- 3. Ground ripple rings at sensor positions ----
+  // Each sensor gets 2 rings expanding outward, staggered.
+  // Transparent meshes are expensive on mobile GPUs (forced overdraw +
+  // depth-sort) so we skip on phones.
+  if (CONFIG.groundRipples) {
+    const matGroundRipple = new THREE.MeshBasicMaterial({
+      color: COLORS.lime, transparent: true, opacity: 0.6,
+      side: THREE.DoubleSide,
+    });
+    sensorBoxes.forEach((sb, idx) => {
+      for (let r = 0; r < 2; r++) {
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.4, 0.42, 48),
+          matGroundRipple.clone(),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(sb.position.x, 0.01, sb.position.z);
+        ring.userData.phaseOffset = r * 0.5 + idx * 0.23;
+        ring.userData.maxRadius = 2.6;
+        scene.add(ring);
+        dataLayerObjects.push({ kind: 'ripple', mesh: ring });
+      }
+    });
+  }
+
+  // ============================================================
+  // SCROLL → PROGRESS
+  // ============================================================
+  let targetProgress = 0;
+  let smoothProgress = 0;
+  const scrollContainer = document.getElementById('scrollytelling');
+
+  // Detect if this scene is embedded as an iframe inside another page.
+  // If yes, listen for scroll-progress messages from the parent and
+  // disable our own internal scroll tracker. This lets the parent
+  // (Webflow page) drive the camera.
+  const isEmbedded = window.parent !== window;
+
+  function updateScrollProgress() {
+    const total = scrollContainer.offsetHeight - window.innerHeight;
+    if (total <= 0) { targetProgress = 0; return; }
+    const p = window.scrollY / total;
+    targetProgress = Math.max(0, Math.min(1, p));
+  }
+
+  if (isEmbedded) {
+    // Listen for parent scroll progress. Expected message shape:
+    //   { type: 'scrollProgress', progress: 0..1 }
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (data && data.type === 'scrollProgress' && typeof data.progress === 'number') {
+        targetProgress = Math.max(0, Math.min(1, data.progress));
+      }
+    });
+    // Hide the internal scroll hint when parent-controlled
+    const hintEl = document.getElementById('scrollHint');
+    if (hintEl) hintEl.style.display = 'none';
+    // Signal to parent we're ready
+    try {
+      window.parent.postMessage({ type: 'sceneReady' }, '*');
+    } catch (e) { /* ignore cross-origin warning, parent may still receive */ }
+  } else {
+    // Standalone mode — use our own scroll listener
+    window.addEventListener('scroll', () => {
+      updateScrollProgress();
+      if (window.scrollY > 30) hint.classList.add('hide');
+    }, { passive: true });
+  }
+
+  // ============================================================
+  // CAMERA INTERPOLATION
+  //
+  // We build two CatmullRomCurve3 splines — one for camera
+  // position, one for look-target. CatmullRom gives C1
+  // continuity (smooth velocity through every keyframe), which
+  // is what gives the motion its cinematic feel vs the
+  // direction-change kinks you get from linear segment-by-
+  // segment lerping.
+  //
+  // We use 'centripetal' parameterization to prevent overshoot
+  // and loop-back artifacts at sharper direction changes.
+  //
+  // Because our keyframes have non-uniform time stamps but the
+  // curve uses uniform u-parameter (each control point at
+  // u = i / (n-1)), we remap scroll-progress → curve-u so the
+  // original timing is preserved.
+  // ============================================================
+  const positionCurve = new THREE.CatmullRomCurve3(
+    cameraKeyframes.map(k => new THREE.Vector3(...k.pos)),
+    false,           // not closed
+    'centripetal',   // tension type — safest for camera paths
+    0.5,
+  );
+  const targetCurve = new THREE.CatmullRomCurve3(
+    cameraKeyframes.map(k => new THREE.Vector3(...k.target)),
+    false,
+    'centripetal',
+    0.5,
+  );
+
+  function smoothstep(t) { return t * t * (3 - 2 * t); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  // Remap scroll progress (using keyframe t values) onto the
+  // curve's uniform parameter space.
+  function progressToCurveU(p) {
+    const n = cameraKeyframes.length;
+    let i = 0;
+    while (i < n - 1 && cameraKeyframes[i + 1].t <= p) i++;
+    if (i >= n - 1) return 1;
+    const a = cameraKeyframes[i];
+    const b = cameraKeyframes[i + 1];
+    const span = (b.t - a.t) || 1;
+    const localT = Math.max(0, Math.min(1, (p - a.t) / span));
+    // Smoothstep the local segment too — subtle, takes the edge off
+    // segment-boundary velocity changes
+    const eased = smoothstep(localT);
+    return (i + eased) / (n - 1);
+  }
+
+  // Reusable vectors to avoid allocations every frame
+  const _posVec = new THREE.Vector3();
+  const _tgtVec = new THREE.Vector3();
+  const _viewDir = new THREE.Vector3();
+
+  function applyCameraForProgress(p) {
+    const u = progressToCurveU(p);
+
+    positionCurve.getPoint(u, _posVec);
+    targetCurve.getPoint(u, _tgtVec);
+
+    // ============================================================
+    // Aspect-aware portrait correction.
+    //
+    // Camera keyframes were composed for landscape (~16:9). On a
+    // portrait phone (~9:16), the same camera position frames a
+    // narrower horizontal slice — subjects get clipped. We
+    // compensate by:
+    //   - Pulling the camera back along the view direction
+    //   - Widening the FOV
+    //
+    // The two together preserve roughly the same vertical framing
+    // while expanding the horizontal field-of-view, so the
+    // landscape composition still fits the portrait viewport.
+    //
+    // Effect smoothly cancels as aspect approaches 1 (square) and
+    // is zero at aspect ≥ 1 (landscape).
+    // ============================================================
+    const aspect = camera.aspect;
+    let portraitFactor = 0;
+    if (aspect < 1.0) {
+      // 0 at aspect=1.0, 1 at aspect=0.5 (very tall phone portrait)
+      portraitFactor = Math.min(1, (1.0 - aspect) / 0.5);
+    }
+
+    if (portraitFactor > 0) {
+      // Pull camera back from target along the view direction
+      _viewDir.subVectors(_posVec, _tgtVec);
+      const pullback = 1.0 + (0.35 * portraitFactor);  // up to +35% distance
+      _viewDir.multiplyScalar(pullback);
+      _posVec.copy(_tgtVec).add(_viewDir);
+    }
+
+    camera.position.copy(_posVec);
+    camera.lookAt(_tgtVec);
+
+    // FOV — simple eased interpolation (no curve needed for a scalar)
+    let i = 0;
+    while (i < cameraKeyframes.length - 1 && cameraKeyframes[i + 1].t <= p) i++;
+    let baseFov;
+    if (i >= cameraKeyframes.length - 1) {
+      baseFov = cameraKeyframes[cameraKeyframes.length - 1].fov;
+    } else {
+      const a = cameraKeyframes[i];
+      const b = cameraKeyframes[i + 1];
+      const localT = (p - a.t) / ((b.t - a.t) || 1);
+      const eased = smoothstep(Math.max(0, Math.min(1, localT)));
+      baseFov = lerp(a.fov, b.fov, eased);
+    }
+    // Widen FOV on portrait for the same reason — preserve framing
+    camera.fov = baseFov + (6 * portraitFactor);
+    camera.updateProjectionMatrix();
+  }
+
+  // ============================================================
+  // CAPTIONS + LOGO REVEAL — driven by scroll progress
+  // ============================================================
+  const hint     = document.getElementById('scrollHint');
+  const dim      = document.getElementById('sceneDim');
+  const logo     = document.getElementById('logoReveal');
+
+  function applyOverlaysForProgress(p) {
+    // Dim overlay starts fading in after 80%, reaches ~65% by end
+    const dimP = Math.max(0, (p - 0.80) / 0.20);
+    dim.style.opacity = (dimP * 0.65).toFixed(3);
+
+    // Logo: fade in 0.86 → 1.0
+    const logoP = Math.max(0, Math.min(1, (p - 0.86) / 0.14));
+    logo.style.opacity = logoP.toFixed(3);
+    logo.classList.toggle('show', logoP > 0.5);
+  }
+
+  // ============================================================
+  // RESIZE
+  // ============================================================
+  const ro = new ResizeObserver(() => {
+    const newW = container.clientWidth;
+    const newH = container.clientHeight;
+    if (!newW || !newH) return;
+    camera.aspect = newW / newH;
+    camera.updateProjectionMatrix();
+    renderer.setSize(newW, newH);
+    updateScrollProgress();
+  });
+  ro.observe(container);
+  window.addEventListener('resize', updateScrollProgress);
+
+  // ============================================================
+  // ANIMATION LOOP
+  // ============================================================
+  const clock = new THREE.Clock();
+  let running = true;
+  let frameId;
+
+  function tick() {
+    if (!running) return;
+    const t = clock.getElapsedTime();
+
+    // Damped scroll
+    smoothProgress += (targetProgress - smoothProgress) * CONFIG.scrollDamping;
+
+    // Panel tracking — visibly sweep through the day across the
+    // cinematic, with a tighter "live tracking" gesture during the
+    // close-up segment. This sells the active-control product
+    // (MPC tracker, physical engine resolves orientation).
+    //
+    // Sun position in the scene is upper-right (positive X), so:
+    //   - early scroll  → panels tilt east-ish (face sun = +X)  → rotation.x ≈ +0.55
+    //   - mid scroll    → panels flatter as "sun" reaches zenith   → rotation.x ≈ +0.15
+    //   - late scroll   → panels tilt back west-ish                → rotation.x ≈ +0.45
+    //   - very late     → settled                                   → rotation.x ≈ +0.30
+    //
+    // Layered on top: a small breathing wobble (~0.04 rad ≈ 2.3°)
+    // that reads as live re-calibration. Close-up segment gets a
+    // stronger gesture (visible 8° sweep over 4 seconds) so the
+    // viewer can clearly see the panel adjust while in shot.
+    let scrollTilt;
+    const p = smoothProgress;
+    if (p < 0.40)      scrollTilt = lerp(0.55, 0.18, smoothstep(p / 0.40));
+    else if (p < 0.75) scrollTilt = lerp(0.18, 0.42, smoothstep((p - 0.40) / 0.35));
+    else               scrollTilt = lerp(0.42, 0.30, smoothstep((p - 0.75) / 0.25));
+
+    // Live re-calibration wobble — small, always present
+    const wobble = Math.sin(t * 0.55) * 0.025;
+
+    // Close-up segment (progress 0.55 → 0.85): amplify a clear sweep
+    // so the on-camera panel is visibly tracking
+    const closeUpStrength = Math.max(0, 1 - Math.abs(p - 0.72) / 0.18);
+    const closeUpGesture = Math.sin(t * 0.85) * 0.075 * closeUpStrength;
+
+    const tilt = scrollTilt + wobble + closeUpGesture;
+    for (const tr of trackers) {
+      tr.userData.pivot.rotation.x = tilt + tr.userData.tiltOffset;
+    }
+
+    // Sensor LEDs pulse
+    for (const led of allLEDs) {
+      const phase = t * 1.4 + led.userData.phase;
+      led.material.emissiveIntensity = 0.45 + Math.sin(phase) * 0.3;
+    }
+
+    // Data layer — animates the telemetry visualization
+    for (const obj of dataLayerObjects) {
+      if (obj.kind === 'trackerLED') {
+        const phase = t * 1.2 + obj.mesh.userData.phase;
+        obj.mesh.material.emissiveIntensity = 0.5 + Math.sin(phase) * 0.4;
+      } else if (obj.kind === 'trail') {
+        // Each particle ascends, wraps when it reaches the top
+        for (const p of obj.particles) {
+          // Cycle: each particle's y goes 0 → height, then wraps
+          // Use a sawtooth that increments with time then mods
+          const cyclePos = ((t * obj.speed) + p.userData.basePhase) % 1.0;
+          p.position.y = 0.3 + cyclePos * p.userData.height;
+          // Fade out near the top
+          p.material.opacity = (1 - cyclePos) * 0.75;
+          // Slight horizontal drift for organic feel
+          p.position.x = p.userData.originX + Math.sin(t * 0.7 + p.userData.basePhase * 6) * 0.05;
+          p.position.z = p.userData.originZ + Math.cos(t * 0.6 + p.userData.basePhase * 6) * 0.05;
+        }
+      } else if (obj.kind === 'ripple') {
+        // Expand outward, fade as it grows. Period ~3.5s.
+        const period = 3.5;
+        const cyclePos = ((t + obj.mesh.userData.phaseOffset) % period) / period;
+        const radius = 0.4 + cyclePos * (obj.mesh.userData.maxRadius - 0.4);
+        obj.mesh.scale.set(radius / 0.41, radius / 0.41, 1);
+        obj.mesh.material.opacity = (1 - cyclePos) * 0.55;
+      }
+    }
+
+    // Grain plant growth — driven by scroll progress, not time.
+    // Sprouts between 0.55 and 0.80; full size after.
+    // Plants grow with slight stagger so they don't all pop in unison.
+    const baseGrowP = (smoothProgress - 0.55) / 0.25;
+    grainPlants.forEach((plant, idx) => {
+      const offset = idx * 0.06;  // small stagger per plant
+      const localP = Math.max(0, Math.min(1, baseGrowP - offset));
+      const eased = localP * localP * (3 - 2 * localP);   // smoothstep
+      // Tiny "shoot up" gesture: Y grows slightly faster than XZ
+      const sizeFactor = (idx === 0) ? 1.0 : (idx === 1 ? 0.85 : 0.78);
+      const yScale = eased * sizeFactor;
+      const xzScale = Math.max(0, (eased - 0.12) / 0.88) * sizeFactor;
+      plant.scale.set(Math.max(0.001, xzScale), Math.max(0.001, yScale), Math.max(0.001, xzScale));
+    });
+
+    // Camera storyboard
+    applyCameraForProgress(smoothProgress);
+
+    // Subtle organic camera breathing — a barely-perceptible
+    // micro-oscillation, like a hovering bird or a stabilized
+    // drone. Amplitude scales down at altitude so it stays in
+    // the "imperceptible" range at the high overhead shot and
+    // becomes slightly more felt at low altitudes where it
+    // gives the close-up shot a hand-held quality.
+    const lowAltFactor = 1 - Math.min(1, camera.position.y / 35);
+    const breathAmp = 0.04 + 0.10 * lowAltFactor;
+    camera.position.x += Math.sin(t * 0.43) * breathAmp;
+    camera.position.y += Math.cos(t * 0.51) * breathAmp * 0.4;
+    camera.position.z += Math.sin(t * 0.37 + 1.2) * breathAmp * 0.7;
+
+    // Overlays (dim, logo)
+    applyOverlaysForProgress(smoothProgress);
+
+    renderer.render(scene, camera);
+    frameId = requestAnimationFrame(tick);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      running = false;
+      if (frameId) cancelAnimationFrame(frameId);
+    } else if (!running) {
+      running = true;
+      clock.getDelta();
+      tick();
+    }
+  });
+
+  // ============================================================
+  // GO
+  // ============================================================
+  updateScrollProgress();
+  tick();
+})();
+</script>
+
+</body>
+</html>

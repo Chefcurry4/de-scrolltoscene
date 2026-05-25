@@ -21,13 +21,13 @@
      ============================================================ */
   #scrollytelling {
     position: relative;
-    height: 620vh;          /* 500vh cinematic + 120vh hold tail on the final composition */
+    height: 460vh;          /* 350vh cinematic + 110vh hold tail on the final composition */
     width: 100%;
     background: #EDECE7;
   }
   /* Mobile / tablet portrait: shorter cinematic so it's not a marathon to scroll */
   @media (max-width: 900px) {
-    #scrollytelling { height: 400vh; }  /* 320vh cinematic + 80vh hold tail */
+    #scrollytelling { height: 310vh; }  /* 240vh cinematic + 70vh hold tail */
   }
   #pinned {
     position: sticky;
@@ -187,6 +187,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;1,300&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
 
 </head>
@@ -245,6 +246,7 @@
 </div>
 
 <!-- ============ THREE.JS ============ -->
+<link rel="modulepreload" href="https://unpkg.com/three@0.160.0/build/three.module.js" crossorigin>
 <script type="importmap">
 {
   "imports": {
@@ -321,7 +323,7 @@ import * as THREE from 'three';
     fieldGrainDensity: isPhone ? 1.5 : (isTablet ? 2 : 3),
 
     // Scroll smoothing — lower = more "filmic" lag, higher = snappier
-    scrollDamping: 0.075,
+    scrollDamping: 0.13,
   };
 
   // ============================================================
@@ -1235,7 +1237,7 @@ import * as THREE from 'three';
   // Trailing scroll distance during which progress stays clamped at 1.0
   // so the final logo composition lingers naturally before the sticky
   // scene releases. Smaller on mobile where the whole scroll is shorter.
-  const HOLD_TAIL_VH = window.innerWidth <= 900 ? 80 : 120;
+  const HOLD_TAIL_VH = window.innerWidth <= 900 ? 70 : 110;
 
   function updateScrollProgress() {
     const total = scrollContainer.offsetHeight - window.innerHeight;
@@ -1802,6 +1804,10 @@ import * as THREE from 'three';
   // GO
   // ============================================================
   updateScrollProgress();
+  // Pre-warm: compile shaders + draw one frame before the first user
+  // scroll, so the first scroll tick doesn't hit a cold pipeline.
+  renderer.compile(scene, camera);
+  renderer.render(scene, camera);
   tick();
 })();
 </script>

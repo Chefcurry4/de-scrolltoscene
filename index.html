@@ -114,38 +114,49 @@
     height: auto;
     display: block;
   }
-  .logo-reveal .tagline {
-    margin-top: 32px;
-    text-align: center;
+  /* ============================================================
+     Typing reveal — appears just before the logo, types out a line,
+     then cross-fades into the logo.
+     ============================================================ */
+  .typing-reveal {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
     opacity: 0;
-    transform: translateY(8px);
-    transition: opacity 1s ease 0.3s, transform 1s ease 0.3s;
+    padding: 0 24px;
   }
-  .logo-reveal .tagline .primary {
-    display: block;
+  .typing-text {
     font-family: 'Source Serif 4', Georgia, serif;
     font-weight: 400;
     font-style: italic;
-    font-size: clamp(18px, 1.7vw, 24px);
+    font-size: clamp(24px, 3vw, 44px);
     color: #14443A;
     letter-spacing: 0.01em;
     line-height: 1.3;
+    text-align: center;
+    max-width: 90vw;
   }
-  .logo-reveal .tagline .secondary {
-    display: block;
-    margin-top: 10px;
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-weight: 400;
-    font-size: clamp(10px, 0.85vw, 12px);
-    color: #14443A;
-    opacity: 0.6;
-    letter-spacing: 0.06em;
-    text-transform: none;
-    line-height: 1.5;
+  .typing-text .typed { white-space: pre-wrap; }
+  .typing-text .caret {
+    display: inline-block;
+    width: 2px;
+    height: 0.95em;
+    background: #14443A;
+    margin-left: 4px;
+    vertical-align: -2px;
+    animation: caretBlink 0.85s steps(2, start) infinite;
   }
-  .logo-reveal.show .tagline {
-    opacity: 1;
-    transform: translateY(0);
+  .typing-reveal.done .caret {
+    opacity: 0;
+    animation: none;
+    transition: opacity 0.35s ease;
+  }
+  @keyframes caretBlink {
+    50% { opacity: 0; }
   }
 
   /* Dim overlay that fades in behind logo (driven by scroll) */
@@ -181,6 +192,11 @@
     <!-- Dim overlay for final reveal -->
     <div class="scene-dim" id="sceneDim"></div>
 
+    <!-- Typing reveal (precedes the logo) -->
+    <div class="typing-reveal" id="typingReveal">
+      <div class="typing-text"><span class="typed" id="typedText"></span><span class="caret"></span></div>
+    </div>
+
     <!-- Logo reveal (final state) -->
     <div class="logo-reveal" id="logoReveal">
       <div class="logo-wrap">
@@ -207,7 +223,6 @@
             </clipPath>
           </defs>
         </svg>
-        <div class="tagline"><span class="primary">The predictive infrastructure for agrivoltaics.</span><span class="secondary">From first permit to final harvest — one platform, twenty-five years.</span></div>
       </div>
     </div>
 
@@ -1100,16 +1115,62 @@ import * as THREE from 'three';
   const hint     = document.getElementById('scrollHint');
   const dim      = document.getElementById('sceneDim');
   const logo     = document.getElementById('logoReveal');
+  const typing   = document.getElementById('typingReveal');
+  const typed    = document.getElementById('typedText');
+
+  // Time-based typewriter, triggered by scroll entering the typing zone.
+  // Held in module scope so we can resume/reset across scroll direction
+  // changes without races.
+  const TYPING_TEXT     = 'Unlock the power of Agrivoltaics';
+  const TYPING_SPEED_MS = 55;
+  let typingTimer = null;
+  let typingDone  = false;
+
+  function startTyping() {
+    if (typingTimer || typingDone) return;
+    let i = typed.textContent.length;  // resume if partially typed
+    typing.classList.remove('done');
+    typingTimer = setInterval(() => {
+      i++;
+      typed.textContent = TYPING_TEXT.slice(0, i);
+      if (i >= TYPING_TEXT.length) {
+        clearInterval(typingTimer);
+        typingTimer = null;
+        typingDone = true;
+        // Let the cursor blink for a beat before it fades
+        setTimeout(() => typing.classList.add('done'), 650);
+      }
+    }, TYPING_SPEED_MS);
+  }
+
+  function resetTyping() {
+    if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
+    typed.textContent = '';
+    typingDone = false;
+    typing.classList.remove('done');
+  }
 
   function applyOverlaysForProgress(p) {
-    // Dim overlay starts fading in after 80%, reaches ~65% by end
-    const dimP = Math.max(0, (p - 0.80) / 0.20);
+    // Dim overlay starts fading in after 78%, reaches ~65% by end
+    const dimP = Math.max(0, (p - 0.78) / 0.22);
     dim.style.opacity = (dimP * 0.65).toFixed(3);
 
-    // Logo: fade in 0.86 → 1.0
-    const logoP = Math.max(0, Math.min(1, (p - 0.86) / 0.14));
-    logo.style.opacity = logoP.toFixed(3);
+    // Typing container fades in 0.80 → 0.84
+    const typingFadeIn = Math.max(0, Math.min(1, (p - 0.80) / 0.04));
+    // Logo fades in 0.92 → 1.0 and the typing cross-fades out in the same window
+    const logoP        = Math.max(0, Math.min(1, (p - 0.92) / 0.08));
+
+    typing.style.opacity = (typingFadeIn * (1 - logoP)).toFixed(3);
+    logo.style.opacity   = logoP.toFixed(3);
     logo.classList.toggle('show', logoP > 0.5);
+
+    // Kick off the typewriter once the text is visible; reset if the user
+    // scrolls back out of the zone so the effect plays fresh on re-entry.
+    if (typingFadeIn > 0.5) {
+      startTyping();
+    } else if (p < 0.78) {
+      resetTyping();
+    }
   }
 
   // ============================================================

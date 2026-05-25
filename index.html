@@ -96,14 +96,15 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
-    padding-top: clamp(48px, 9vh, 110px);
+    justify-content: center;
+    padding-top: 0;
+    padding-bottom: 18vh;       /* shifts the logo up to ~41vh so it sits just above the typed line */
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.4s ease;
   }
   .logo-reveal .logo-wrap {
-    width: min(380px, 56vw);
+    width: min(560px, 78vw);    /* enlarged from min(380px, 56vw) */
     transform: scale(0.94) translateY(-10px);
     transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -128,13 +129,13 @@
     justify-content: center;
     pointer-events: none;
     opacity: 0;
-    padding: 0 24px;
+    padding: 18vh 24px 0;       /* push the typed line down to ~59vh, under the logo */
   }
   .typing-text {
     font-family: 'Manrope', system-ui, sans-serif;
     font-weight: 700;
     font-style: normal;
-    font-size: clamp(22px, 2.8vw, 42px);
+    font-size: clamp(30px, 4vw, 64px);   /* enlarged from clamp(22px, 2.8vw, 42px) */
     color: #14443A;
     letter-spacing: -0.01em;
     line-height: 1.25;
@@ -720,6 +721,32 @@ import * as THREE from 'three';
   );
   scene.add(introGrid);
 
+  // Panel-footprint rectangles — one outline per tracker, matching the
+  // panel dimensions (2.35 × 1.18m). Shares gridMat so it fades on the
+  // same envelope. Reads as "this is exactly where we'll install".
+  const footprintPoints = [];
+  const FP_HALF_W = 2.35 / 2, FP_HALF_D = 1.18 / 2, FP_Y = 0.025;
+  for (let r = 0; r < CONFIG.rows; r++) {
+    for (let c = 0; c < CONFIG.cols; c++) {
+      const px = (c - (CONFIG.cols - 1) / 2) * CONFIG.colSpacing;
+      const pz = (r - (CONFIG.rows - 1) / 2) * CONFIG.rowSpacing;
+      const cs = [
+        new THREE.Vector3(px - FP_HALF_W, FP_Y, pz - FP_HALF_D),
+        new THREE.Vector3(px + FP_HALF_W, FP_Y, pz - FP_HALF_D),
+        new THREE.Vector3(px + FP_HALF_W, FP_Y, pz + FP_HALF_D),
+        new THREE.Vector3(px - FP_HALF_W, FP_Y, pz + FP_HALF_D),
+      ];
+      for (let i = 0; i < 4; i++) {
+        footprintPoints.push(cs[i], cs[(i + 1) % 4]);
+      }
+    }
+  }
+  const footprints = new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints(footprintPoints),
+    gridMat,
+  );
+  scene.add(footprints);
+
   // ============================================================
   // PANEL FOCUS ACCENTS — wireframe outline on the hero panel +
   // a thin line marking the row-pitch axis to the next row.
@@ -1115,21 +1142,17 @@ import * as THREE from 'three';
   }
 
   // ============================================================
-  // SENSOR FOCUS VFX — neural-net + database visualization.
-  // Built once at init, parented to a single group, gated to the
-  // sensor-focus window 0.72 → 0.88 via sensorFocusFade.
-  //
-  // Topology: 2 input nodes (above hero sensor antenna) →
-  //           4 hidden nodes → 2 output nodes → top of DB stack.
-  // 18 edges, 18 traveling pulses (one per edge, phone-gated).
-  // 3 stacked torus rings act as the abstract "database".
+  // SENSOR FOCUS VFX — minimal linear data pipeline.
+  // 5 nodes along a single curved arc from the hero sensor antenna
+  // up into the sky; one thin connecting line; 3 traveling pulses.
+  // The last node is enlarged + brighter to read as the destination.
+  // All gated to the sensor-focus window via sensorFocusFade.
   // ============================================================
   const neuralGroup = new THREE.Group();
   scene.add(neuralGroup);
 
-  // Shared materials — edges & pulses can all share opacity, set
-  // once per frame in applyOverlaysForProgress. Node and ring
-  // materials are cloned per-mesh so each can pulse independently.
+  // Shared materials — opacity set once per frame in applyOverlaysForProgress.
+  // Node materials are cloned per-mesh so each can pulse independently.
   const matNNEdgeShared  = new THREE.LineBasicMaterial({
     color: 0x8AE932, transparent: true, opacity: 0,
   });
@@ -1140,82 +1163,50 @@ import * as THREE from 'three';
     color: 0x14443A, emissive: 0x8AE932, emissiveIntensity: 0,
     transparent: true, opacity: 0, roughness: 0.4,
   });
-  const matDBRingProto = new THREE.MeshStandardMaterial({
-    color: 0x14443A, emissive: 0x8AE932, emissiveIntensity: 0,
-    transparent: true, opacity: 0, roughness: 0.5,
-  });
 
-  // Node positions arranged along the sensor → database arc
-  // Network anchored at the relocated hero sensor (1.5, *, 6.2).
-  // All positions shifted from the v2 layout by Δx = -0.9, Δz = +0.2.
-  const nnInputs = [
-    new THREE.Vector3(1.50, 1.30, 6.20),
-    new THREE.Vector3(1.60, 1.40, 6.35),
+  // 5-point arc anchored at the hero sensor antenna tip.
+  const nnStages = [
+    new THREE.Vector3(1.50, 1.10, 6.20),  // emit (origin)
+    new THREE.Vector3(1.65, 1.75, 6.40),
+    new THREE.Vector3(1.85, 2.35, 6.65),
+    new THREE.Vector3(2.05, 2.85, 6.95),
+    new THREE.Vector3(2.30, 3.20, 7.20),  // endpoint (destination)
   ];
-  const nnHidden = [
-    new THREE.Vector3(1.75, 1.85, 6.50),
-    new THREE.Vector3(1.88, 1.95, 6.60),
-    new THREE.Vector3(1.82, 2.05, 6.70),
-    new THREE.Vector3(1.98, 1.90, 6.70),
-  ];
-  const nnOutputs = [
-    new THREE.Vector3(2.15, 2.45, 7.00),
-    new THREE.Vector3(2.20, 2.55, 7.10),
-  ];
-  const nnDBTop = new THREE.Vector3(2.3, 3.15, 7.2);
 
-  const nnNodeGeom = new THREE.SphereGeometry(0.05, 12, 12);
-  function addNNNode(pos, phase) {
-    const m = new THREE.Mesh(nnNodeGeom, matNNNodeProto.clone());
+  // Nodes — stages 0..3 small, stage 4 (endpoint) noticeably larger
+  const nnNodeGeomSmall = new THREE.SphereGeometry(0.045, 12, 12);
+  const nnNodeGeomLarge = new THREE.SphereGeometry(0.075, 14, 14);
+  nnStages.forEach((pos, i) => {
+    const isEndpoint = i === nnStages.length - 1;
+    const m = new THREE.Mesh(
+      isEndpoint ? nnNodeGeomLarge : nnNodeGeomSmall,
+      matNNNodeProto.clone(),
+    );
     m.position.copy(pos);
-    m.userData.phase = phase;
+    m.userData.phase = i * 0.45;
+    m.userData.isEndpoint = isEndpoint;
     neuralGroup.add(m);
     dataLayerObjects.push({ kind: 'nnNode', mesh: m });
-  }
-  nnInputs.forEach((v, i)  => addNNNode(v, i * 0.7));
-  nnHidden.forEach((v, i)  => addNNNode(v, 0.4 + i * 0.6));
-  nnOutputs.forEach((v, i) => addNNNode(v, 1.1 + i * 0.5));
+  });
 
-  // Edges + traveling pulses
-  const nnPulseGeom = new THREE.SphereGeometry(0.025, 8, 8);
-  let nnEdgeIdx = 0;
-  function addNNEdge(a, b, speed) {
-    const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([a, b]),
-      matNNEdgeShared,
-    );
-    neuralGroup.add(line);
-    if (CONFIG.dataTrails) {
+  // Single connecting line through all 5 stages
+  neuralGroup.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(nnStages),
+    matNNEdgeShared,
+  ));
+
+  // 3 traveling pulses, staggered, walking the 4-segment chain
+  if (CONFIG.dataTrails) {
+    const nnPulseGeom = new THREE.SphereGeometry(0.022, 8, 8);
+    for (let i = 0; i < 3; i++) {
       const pulse = new THREE.Mesh(nnPulseGeom, matNNPulseShared);
-      pulse.userData.a = a;
-      pulse.userData.b = b;
-      pulse.userData.speed = speed;
-      pulse.userData.phase = (nnEdgeIdx++ % 8) / 8;
+      pulse.userData.stages = nnStages;
+      pulse.userData.speed  = 0.18;
+      pulse.userData.phase  = i / 3;
       neuralGroup.add(pulse);
       dataLayerObjects.push({ kind: 'nnPulse', mesh: pulse });
     }
   }
-  for (const a of nnInputs) {
-    for (const b of nnHidden) addNNEdge(a, b, 0.45);
-  }
-  for (const a of nnHidden) {
-    for (const b of nnOutputs) addNNEdge(a, b, 0.55);
-  }
-  for (const a of nnOutputs) addNNEdge(a, nnDBTop, 0.50);
-
-  // Database stack — 3 flat torus rings stacked vertically.
-  // TorusGeometry's default axis is z; rotating x by π/2 lays it flat
-  // so the rings stack along y (canonical "DB cylinder" silhouette).
-  const dbCenter = new THREE.Vector3(2.3, 3.0, 7.2);
-  const dbTorusGeom = new THREE.TorusGeometry(0.20, 0.04, 8, 32);
-  [-0.15, 0, 0.15].forEach((dy, idx) => {
-    const ring = new THREE.Mesh(dbTorusGeom, matDBRingProto.clone());
-    ring.position.set(dbCenter.x, dbCenter.y + dy, dbCenter.z);
-    ring.rotation.x = Math.PI / 2;
-    ring.userData.phase = idx * 0.55;
-    neuralGroup.add(ring);
-    dataLayerObjects.push({ kind: 'dbRing', mesh: ring });
-  });
 
   // ============================================================
   // SCROLL → PROGRESS
@@ -1300,6 +1291,13 @@ import * as THREE from 'three';
 
   function smoothstep(t) { return t * t * (3 - 2 * t); }
   function lerp(a, b, t) { return a + (b - a) * t; }
+  // Slight overshoot on landing — used by the intro drop-in for a
+  // satisfying "click into place" beat on each panel.
+  function easeOutBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
 
   // Focus-beat fade profiles — triangular envelopes around each beat
   // (ramp up, hold, ramp down). Returns 0 outside the beat, 1 at the peak.
@@ -1454,12 +1452,13 @@ import * as THREE from 'three';
   }
 
   function applyOverlaysForProgress(p) {
-    // Intro grid — fully visible at start, fades out as the panels
-    // finish emerging. Hidden for the rest of the cinematic.
+    // Intro grid + panel-footprint rectangles — fully visible at start,
+    // fade out as panels finish landing. Hidden for the rest of the cinematic.
+    const GRID_MAX = 0.92;
     let gridOp;
-    if (p < 0.04)      gridOp = 0.70;
-    else if (p < 0.10) gridOp = 0.70;
-    else if (p < 0.16) gridOp = 0.70 * (1 - (p - 0.10) / 0.06);
+    if (p < 0.04)      gridOp = GRID_MAX;
+    else if (p < 0.10) gridOp = GRID_MAX;
+    else if (p < 0.16) gridOp = GRID_MAX * (1 - (p - 0.10) / 0.06);
     else               gridOp = 0;
     gridMat.opacity = gridOp;
 
@@ -1481,9 +1480,11 @@ import * as THREE from 'three';
     matNNEdgeShared.opacity  = sensorFade * 0.75;
     matNNPulseShared.opacity = sensorFade * 0.95;
 
-    // Dim overlay starts fading in after 78%, reaches ~65% by end
+    // Dim overlay starts fading in after 78%, reaches ~30% by end —
+    // intentionally light so the 3D scene shows through behind the hero
+    // logo + typed line, keeping the field as a subtle backdrop.
     const dimP = Math.max(0, (p - 0.78) / 0.22);
-    dim.style.opacity = (dimP * 0.65).toFixed(3);
+    dim.style.opacity = (dimP * 0.30).toFixed(3);
 
     // Typing container fades in 0.80 → 0.84
     const typingFadeIn = Math.max(0, Math.min(1, (p - 0.80) / 0.04));
@@ -1568,19 +1569,23 @@ import * as THREE from 'three';
     // the window we early-return after locking scale at 1.
     // ============================================================
     if (smoothProgress < 0.16) {
-      const introT = smoothProgress / 0.16;  // 0 → 1 across the intro
+      // Each panel drops from y=8 onto its footprint with overshoot easing,
+      // ripple-staggered across the grid so they look engineered into place.
+      const introT = smoothProgress / 0.16;
       const N = trackers.length;
       for (let i = 0; i < N; i++) {
-        // Stagger each tracker over a 50% slice of the intro window.
-        // Earlier indices appear first → ripple across the grid.
         const stagger = (i / N) * 0.50;
-        const localT  = (introT - stagger) / 0.50;
-        const eased   = smoothstep(Math.max(0, Math.min(1, localT)));
-        trackers[i].scale.setScalar(eased);
+        const localT  = Math.max(0, Math.min(1, (introT - stagger) / 0.50));
+        const easedScale = easeOutBack(localT);
+        trackers[i].scale.setScalar(easedScale);
+        trackers[i].position.y = (1 - localT) * 8;  // linear drop from 8m up
       }
-    } else if (trackers[0].scale.x !== 1) {
+    } else if (trackers[0].position.y !== 0) {
       // One-shot lock once the intro is over (cheap idempotent check).
-      for (const tr of trackers) tr.scale.setScalar(1);
+      for (const tr of trackers) {
+        tr.scale.setScalar(1);
+        tr.position.y = 0;
+      }
     }
 
     const tilt = scrollTilt + wobble + closeUpGesture;
@@ -1668,29 +1673,28 @@ import * as THREE from 'three';
         }
       } else if (obj.kind === 'nnNode') {
         // Cloned material per node so each pulses independently.
-        // Opacity gated to the sensor-focus window.
+        // Endpoint node pulses at higher amplitude to read as the destination.
         const fade = sensorFocusFade(smoothProgress);
         obj.mesh.material.opacity = fade;
         const pulse = 0.5 + 0.5 * Math.sin(t * 1.6 + obj.mesh.userData.phase);
-        obj.mesh.material.emissiveIntensity = fade * (0.6 + pulse * 0.9);
+        const amp   = obj.mesh.userData.isEndpoint ? 1.4 : 0.9;
+        obj.mesh.material.emissiveIntensity = fade * (0.55 + pulse * amp);
       } else if (obj.kind === 'nnPulse') {
-        // Shared material; only position updates per-mesh.
-        // Opacity is set once in applyOverlaysForProgress.
-        const a = obj.mesh.userData.a;
-        const b = obj.mesh.userData.b;
+        // Walks the 4-segment chain stages[0..4]: segment index = floor(u * 4),
+        // local t within segment = fractional part. Shared material; opacity
+        // set once in applyOverlaysForProgress.
+        const stages = obj.mesh.userData.stages;
+        const totalSegs = stages.length - 1;
         const u = ((t * obj.mesh.userData.speed) + obj.mesh.userData.phase) % 1.0;
+        const segIdx = Math.min(totalSegs - 1, Math.floor(u * totalSegs));
+        const segT   = (u * totalSegs) - segIdx;
+        const a = stages[segIdx];
+        const b = stages[segIdx + 1];
         obj.mesh.position.set(
-          a.x + (b.x - a.x) * u,
-          a.y + (b.y - a.y) * u,
-          a.z + (b.z - a.z) * u,
+          a.x + (b.x - a.x) * segT,
+          a.y + (b.y - a.y) * segT,
+          a.z + (b.z - a.z) * segT,
         );
-      } else if (obj.kind === 'dbRing') {
-        // Bottom-to-top travel: rings pulse with phase offset, in sync
-        // with the network pulses arriving.
-        const fade = sensorFocusFade(smoothProgress);
-        obj.mesh.material.opacity = fade;
-        const pulse = 0.5 + 0.5 * Math.sin(t * 1.2 - obj.mesh.userData.phase * 2);
-        obj.mesh.material.emissiveIntensity = fade * (0.4 + pulse * 1.3);
       } else if (obj.kind === 'plantDrop') {
         // Water droplets falling near plant bases. Same window gating.
         const fade = plantFocusFade(smoothProgress);

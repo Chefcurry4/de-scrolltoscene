@@ -115,6 +115,11 @@
     width: 100%;
     height: auto;
     display: block;
+    /* Matching cream halo around the logo strokes/fills — same trick as
+       the typed line, keeps the mark legible against the live 3D scene. */
+    filter:
+      drop-shadow(0 0 24px rgba(237, 236, 231, 0.90))
+      drop-shadow(0 0 48px rgba(237, 236, 231, 0.60));
   }
   /* ============================================================
      Typing reveal — appears just before the logo, types out a line,
@@ -141,6 +146,13 @@
     line-height: 1.25;
     text-align: center;
     max-width: 92vw;
+    /* Cream halo around glyphs — the area immediately around the text
+       brightens up against the 3D scene, so the line stays crisp no
+       matter what's behind it. Several layers = softer falloff. */
+    text-shadow:
+      0 0 24px rgba(237, 236, 231, 0.95),
+      0 0 48px rgba(237, 236, 231, 0.75),
+      0 0 80px rgba(237, 236, 231, 0.50);
   }
   .typing-text .typed { white-space: pre-wrap; }
   .typing-text .accent { color: #8AE932; }
@@ -693,61 +705,58 @@ import * as THREE from 'three';
   }
 
   // ============================================================
-  // INTRO GRID — a thin lime grid drawn on the ground at panel
-  // row/col positions. Visible at scroll start; panels emerge at
-  // its nodes; grid fades out by ~t=0.16.
+  // INTRO BLUEPRINT — vertical columns appear first (the "frame"),
+  // then for each row the horizontal line + 10 panel footprints are
+  // drawn together, just before that row's panels drop in.
   // ============================================================
-  // Grid + footprint outlines: dark grey (matches the panel face colour)
-  // so the blueprint reads strongly against the cream ground.
-  const gridMat = new THREE.LineBasicMaterial({
-    color: 0x3A3D42, transparent: true, opacity: 0,
+  const gridMatProto = new THREE.LineBasicMaterial({
+    color: 0x3A3D42, transparent: true, opacity: 0,  // panel-face grey = same as panel material
   });
-  const gridPoints = [];
   const GRID_HALF_X = (CONFIG.cols - 1) / 2 * CONFIG.colSpacing + 1.5;
   const GRID_HALF_Z = (CONFIG.rows - 1) / 2 * CONFIG.rowSpacing + 1.5;
-  // Horizontal lines (one per panel row, running along x)
-  for (let r = 0; r < CONFIG.rows; r++) {
-    const z = (r - (CONFIG.rows - 1) / 2) * CONFIG.rowSpacing;
-    gridPoints.push(new THREE.Vector3(-GRID_HALF_X, 0.02, z));
-    gridPoints.push(new THREE.Vector3( GRID_HALF_X, 0.02, z));
-  }
-  // Vertical lines (one per panel column, running along z)
+  const FP_HALF_W = 2.35 / 2, FP_HALF_D = 1.18 / 2, FP_Y = 0.025;
+
+  // ---- Vertical "frame" lines: appear at the very start of the intro ----
+  const verticalPoints = [];
   for (let c = 0; c < CONFIG.cols; c++) {
     const x = (c - (CONFIG.cols - 1) / 2) * CONFIG.colSpacing;
-    gridPoints.push(new THREE.Vector3(x, 0.02, -GRID_HALF_Z));
-    gridPoints.push(new THREE.Vector3(x, 0.02,  GRID_HALF_Z));
+    verticalPoints.push(new THREE.Vector3(x, 0.02, -GRID_HALF_Z));
+    verticalPoints.push(new THREE.Vector3(x, 0.02,  GRID_HALF_Z));
   }
-  const introGrid = new THREE.LineSegments(
-    new THREE.BufferGeometry().setFromPoints(gridPoints),
-    gridMat,
-  );
-  scene.add(introGrid);
+  const verticalGridMat = gridMatProto.clone();
+  scene.add(new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints(verticalPoints),
+    verticalGridMat,
+  ));
 
-  // Panel-footprint rectangles — one outline per tracker, matching the
-  // panel dimensions (2.35 × 1.18m). Shares gridMat so it fades on the
-  // same envelope. Reads as "this is exactly where we'll install".
-  const footprintPoints = [];
-  const FP_HALF_W = 2.35 / 2, FP_HALF_D = 1.18 / 2, FP_Y = 0.025;
+  // ---- Per-row meshes: 1 horizontal line + 10 footprints, own material clone ----
+  const rowGridMats = [];
   for (let r = 0; r < CONFIG.rows; r++) {
+    const z = (r - (CONFIG.rows - 1) / 2) * CONFIG.rowSpacing;
+    const points = [];
+    // Horizontal line for this row
+    points.push(new THREE.Vector3(-GRID_HALF_X, 0.02, z));
+    points.push(new THREE.Vector3( GRID_HALF_X, 0.02, z));
+    // 10 panel footprints (one per column)
     for (let c = 0; c < CONFIG.cols; c++) {
       const px = (c - (CONFIG.cols - 1) / 2) * CONFIG.colSpacing;
-      const pz = (r - (CONFIG.rows - 1) / 2) * CONFIG.rowSpacing;
       const cs = [
-        new THREE.Vector3(px - FP_HALF_W, FP_Y, pz - FP_HALF_D),
-        new THREE.Vector3(px + FP_HALF_W, FP_Y, pz - FP_HALF_D),
-        new THREE.Vector3(px + FP_HALF_W, FP_Y, pz + FP_HALF_D),
-        new THREE.Vector3(px - FP_HALF_W, FP_Y, pz + FP_HALF_D),
+        new THREE.Vector3(px - FP_HALF_W, FP_Y, z - FP_HALF_D),
+        new THREE.Vector3(px + FP_HALF_W, FP_Y, z - FP_HALF_D),
+        new THREE.Vector3(px + FP_HALF_W, FP_Y, z + FP_HALF_D),
+        new THREE.Vector3(px - FP_HALF_W, FP_Y, z + FP_HALF_D),
       ];
       for (let i = 0; i < 4; i++) {
-        footprintPoints.push(cs[i], cs[(i + 1) % 4]);
+        points.push(cs[i], cs[(i + 1) % 4]);
       }
     }
+    const mat = gridMatProto.clone();
+    rowGridMats.push(mat);
+    scene.add(new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(points),
+      mat,
+    ));
   }
-  const footprints = new THREE.LineSegments(
-    new THREE.BufferGeometry().setFromPoints(footprintPoints),
-    gridMat,
-  );
-  scene.add(footprints);
 
   // ============================================================
   // PANEL FOCUS ACCENTS — wireframe outline on the hero panel +
@@ -1454,15 +1463,28 @@ import * as THREE from 'three';
   }
 
   function applyOverlaysForProgress(p) {
-    // Intro grid + panel-footprint rectangles — fully opaque at start,
-    // fade out as panels finish landing. Hidden for the rest of the cinematic.
-    const GRID_MAX = 1.0;
-    let gridOp;
-    if (p < 0.04)      gridOp = GRID_MAX;
-    else if (p < 0.10) gridOp = GRID_MAX;
-    else if (p < 0.16) gridOp = GRID_MAX * (1 - (p - 0.10) / 0.06);
-    else               gridOp = 0;
-    gridMat.opacity = gridOp;
+    // Intro blueprint — verticals first, then each row's horizontal +
+    // footprints just before its panels drop. Panels stagger by row at
+    // intervals of 0.18 of introT (see tick() intro block). All grids
+    // fade out together once the last row has landed.
+    const GRID_MAX        = 1.0;
+    const ROW_INTERVAL    = 0.18;
+    const ROW_FADE_IN     = 0.04;
+    const FADE_OUT_START  = 0.92;
+    const FADE_OUT_LEN    = 0.08;
+    const introT = Math.min(1, p / 0.16);
+    function gridOpacity(startT) {
+      let op = 0;
+      if (introT < startT) op = 0;
+      else if (introT < startT + ROW_FADE_IN) op = (introT - startT) / ROW_FADE_IN;
+      else if (introT < FADE_OUT_START) op = 1;
+      else if (introT < 1.0) op = 1 - (introT - FADE_OUT_START) / FADE_OUT_LEN;
+      return op * GRID_MAX;
+    }
+    verticalGridMat.opacity = gridOpacity(0);
+    for (let r = 0; r < rowGridMats.length; r++) {
+      rowGridMats[r].opacity = gridOpacity(r * ROW_INTERVAL);
+    }
 
     // Panel-focus accents — wireframe on hero panel + row-pitch line.
     // Triangular fade: ramp up 0.20→0.24, hold 0.24→0.36, ramp down 0.36→0.40.
@@ -1482,11 +1504,12 @@ import * as THREE from 'three';
     matNNEdgeShared.opacity  = sensorFade * 0.75;
     matNNPulseShared.opacity = sensorFade * 0.95;
 
-    // Dim overlay starts fading in after 78%, reaches ~30% by end —
-    // intentionally light so the 3D scene shows through behind the hero
-    // logo + typed line, keeping the field as a subtle backdrop.
+    // Dim overlay starts fading in after 78%. Combined with the cream
+    // text-shadow / drop-shadow halos on the typed line and logo, this
+    // gives a soft "spotlight of clarity" effect: the scene shows through
+    // around the edges, but the hero glyphs stay perfectly legible.
     const dimP = Math.max(0, (p - 0.78) / 0.22);
-    dim.style.opacity = (dimP * 0.30).toFixed(3);
+    dim.style.opacity = (dimP * 0.45).toFixed(3);
 
     // Typing container fades in 0.80 → 0.84
     const typingFadeIn = Math.max(0, Math.min(1, (p - 0.80) / 0.04));
@@ -1571,19 +1594,27 @@ import * as THREE from 'three';
     // the window we early-return after locking scale at 1.
     // ============================================================
     if (smoothProgress < 0.16) {
-      // Each panel drops from y=8 onto its footprint with overshoot easing,
-      // ripple-staggered across the grid so they look engineered into place.
+      // Row-by-row install: for each row, its blueprint (horizontal line +
+      // 10 footprints) draws first; THEN the 10 panels in that row drop in
+      // from y=8 onto their footprints with overshoot easing. Within a row
+      // panels stagger gently left → right. Same ROW_INTERVAL and timing
+      // used by the grid opacity ramp in applyOverlaysForProgress.
       const introT = smoothProgress / 0.16;
-      const N = trackers.length;
-      for (let i = 0; i < N; i++) {
-        const stagger = (i / N) * 0.50;
-        const localT  = Math.max(0, Math.min(1, (introT - stagger) / 0.50));
+      const ROW_INTERVAL = 0.18;
+      const ROW_FADE_IN  = 0.04;
+      const PANEL_FALL   = 0.10;
+      const COL_SLIDE    = 0.04;
+      for (let i = 0; i < trackers.length; i++) {
+        const r = Math.floor(i / CONFIG.cols);
+        const c = i % CONFIG.cols;
+        const rowStart = r * ROW_INTERVAL + ROW_FADE_IN;       // panels begin after the row grid is drawn
+        const colOff   = (c / (CONFIG.cols - 1)) * COL_SLIDE;  // tiny left→right stagger inside the row
+        const localT   = Math.max(0, Math.min(1, (introT - rowStart - colOff) / PANEL_FALL));
         const easedScale = easeOutBack(localT);
         trackers[i].scale.setScalar(easedScale);
-        trackers[i].position.y = (1 - localT) * 8;  // linear drop from 8m up
+        trackers[i].position.y = (1 - localT) * 8;
       }
     } else if (trackers[0].position.y !== 0) {
-      // One-shot lock once the intro is over (cheap idempotent check).
       for (const tr of trackers) {
         tr.scale.setScalar(1);
         tr.position.y = 0;

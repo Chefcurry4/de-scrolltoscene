@@ -697,8 +697,10 @@ import * as THREE from 'three';
   // row/col positions. Visible at scroll start; panels emerge at
   // its nodes; grid fades out by ~t=0.16.
   // ============================================================
+  // Grid + footprint outlines: dark grey (matches the panel face colour)
+  // so the blueprint reads strongly against the cream ground.
   const gridMat = new THREE.LineBasicMaterial({
-    color: 0x8AE932, transparent: true, opacity: 0,
+    color: 0x3A3D42, transparent: true, opacity: 0,
   });
   const gridPoints = [];
   const GRID_HALF_X = (CONFIG.cols - 1) / 2 * CONFIG.colSpacing + 1.5;
@@ -1452,9 +1454,9 @@ import * as THREE from 'three';
   }
 
   function applyOverlaysForProgress(p) {
-    // Intro grid + panel-footprint rectangles — fully visible at start,
+    // Intro grid + panel-footprint rectangles — fully opaque at start,
     // fade out as panels finish landing. Hidden for the rest of the cinematic.
-    const GRID_MAX = 0.92;
+    const GRID_MAX = 1.0;
     let gridOp;
     if (p < 0.04)      gridOp = GRID_MAX;
     else if (p < 0.10) gridOp = GRID_MAX;

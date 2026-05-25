@@ -142,6 +142,7 @@
     max-width: 92vw;
   }
   .typing-text .typed { white-space: pre-wrap; }
+  .typing-text .accent { color: #8AE932; }
   .typing-text .caret {
     display: inline-block;
     width: 3px;
@@ -195,7 +196,7 @@
 
     <!-- Typing reveal (precedes the logo) -->
     <div class="typing-reveal" id="typingReveal">
-      <div class="typing-text"><span class="typed" id="typedText"></span><span class="caret"></span></div>
+      <div class="typing-text"><span class="typed" id="typedPrefix"></span><span class="typed accent" id="typedAccent"></span><span class="caret"></span></div>
     </div>
 
     <!-- Logo reveal (final state) -->
@@ -1116,25 +1117,39 @@ import * as THREE from 'three';
   const hint     = document.getElementById('scrollHint');
   const dim      = document.getElementById('sceneDim');
   const logo     = document.getElementById('logoReveal');
-  const typing   = document.getElementById('typingReveal');
-  const typed    = document.getElementById('typedText');
+  const typing       = document.getElementById('typingReveal');
+  const typedPrefix  = document.getElementById('typedPrefix');
+  const typedAccent  = document.getElementById('typedAccent');
 
   // Time-based typewriter, triggered by scroll entering the typing zone.
-  // Held in module scope so we can resume/reset across scroll direction
-  // changes without races.
-  const TYPING_TEXT     = 'Unlock the power of Agrivoltaics';
+  // The line is split so the accent word can be tinted brand light-green
+  // while the rest stays in the dark serif tone.
+  const TYPING_PREFIX   = 'Unlock the power of ';
+  const TYPING_ACCENT   = 'agrivoltaics';
+  const TYPING_TOTAL    = TYPING_PREFIX.length + TYPING_ACCENT.length;
   const TYPING_SPEED_MS = 55;
   let typingTimer = null;
   let typingDone  = false;
 
+  function renderTypedTo(i) {
+    if (i <= TYPING_PREFIX.length) {
+      typedPrefix.textContent = TYPING_PREFIX.slice(0, i);
+      typedAccent.textContent = '';
+    } else {
+      typedPrefix.textContent = TYPING_PREFIX;
+      typedAccent.textContent = TYPING_ACCENT.slice(0, i - TYPING_PREFIX.length);
+    }
+  }
+
   function startTyping() {
     if (typingTimer || typingDone) return;
-    let i = typed.textContent.length;  // resume if partially typed
+    // Resume from however many chars are already on screen
+    let i = typedPrefix.textContent.length + typedAccent.textContent.length;
     typing.classList.remove('done');
     typingTimer = setInterval(() => {
       i++;
-      typed.textContent = TYPING_TEXT.slice(0, i);
-      if (i >= TYPING_TEXT.length) {
+      renderTypedTo(i);
+      if (i >= TYPING_TOTAL) {
         clearInterval(typingTimer);
         typingTimer = null;
         typingDone = true;
@@ -1146,7 +1161,8 @@ import * as THREE from 'three';
 
   function resetTyping() {
     if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
-    typed.textContent = '';
+    typedPrefix.textContent = '';
+    typedAccent.textContent = '';
     typingDone = false;
     typing.classList.remove('done');
   }

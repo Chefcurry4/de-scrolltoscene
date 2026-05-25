@@ -21,13 +21,13 @@
      ============================================================ */
   #scrollytelling {
     position: relative;
-    height: 560vh;          /* 500vh cinematic + 60vh hold tail on the logo */
+    height: 620vh;          /* 500vh cinematic + 120vh hold tail on the final composition */
     width: 100%;
     background: #EDECE7;
   }
   /* Mobile / tablet portrait: shorter cinematic so it's not a marathon to scroll */
   @media (max-width: 900px) {
-    #scrollytelling { height: 360vh; }  /* 320vh cinematic + 40vh hold tail */
+    #scrollytelling { height: 400vh; }  /* 320vh cinematic + 80vh hold tail */
   }
   #pinned {
     position: sticky;
@@ -92,18 +92,19 @@
   .logo-reveal {
     position: absolute;
     inset: 0;
-    z-index: 10;
+    z-index: 11;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    padding-top: clamp(48px, 9vh, 110px);
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.4s ease;
   }
   .logo-reveal .logo-wrap {
-    width: min(620px, 78vw);
-    transform: scale(0.92) translateY(12px);
+    width: min(380px, 56vw);
+    transform: scale(0.94) translateY(-10px);
     transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
   }
   .logo-reveal.show .logo-wrap {
@@ -130,24 +131,24 @@
     padding: 0 24px;
   }
   .typing-text {
-    font-family: 'Source Serif 4', Georgia, serif;
-    font-weight: 400;
-    font-style: italic;
-    font-size: clamp(24px, 3vw, 44px);
+    font-family: 'Manrope', system-ui, sans-serif;
+    font-weight: 700;
+    font-style: normal;
+    font-size: clamp(22px, 2.8vw, 42px);
     color: #14443A;
-    letter-spacing: 0.01em;
-    line-height: 1.3;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
     text-align: center;
-    max-width: 90vw;
+    max-width: 92vw;
   }
   .typing-text .typed { white-space: pre-wrap; }
   .typing-text .caret {
     display: inline-block;
-    width: 2px;
-    height: 0.95em;
+    width: 3px;
+    height: 0.9em;
     background: #14443A;
-    margin-left: 4px;
-    vertical-align: -2px;
+    margin-left: 6px;
+    vertical-align: middle;
     animation: caretBlink 0.85s steps(2, start) infinite;
   }
   .typing-reveal.done .caret {
@@ -172,7 +173,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;1,300&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;1,300&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
 
 </head>
 <body>
@@ -960,7 +961,7 @@ import * as THREE from 'three';
   // Trailing scroll distance during which progress stays clamped at 1.0
   // so the final logo composition lingers naturally before the sticky
   // scene releases. Smaller on mobile where the whole scroll is shorter.
-  const HOLD_TAIL_VH = window.innerWidth <= 900 ? 40 : 60;
+  const HOLD_TAIL_VH = window.innerWidth <= 900 ? 80 : 120;
 
   function updateScrollProgress() {
     const total = scrollContainer.offsetHeight - window.innerHeight;
@@ -1160,7 +1161,8 @@ import * as THREE from 'three';
     // Logo fades in 0.92 → 1.0 and the typing cross-fades out in the same window
     const logoP        = Math.max(0, Math.min(1, (p - 0.92) / 0.08));
 
-    typing.style.opacity = (typingFadeIn * (1 - logoP)).toFixed(3);
+    // Text stays put once revealed — logo simply joins it above.
+    typing.style.opacity = typingFadeIn.toFixed(3);
     logo.style.opacity   = logoP.toFixed(3);
     logo.classList.toggle('show', logoP > 0.5);
 

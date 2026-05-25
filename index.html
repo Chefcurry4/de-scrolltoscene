@@ -352,10 +352,10 @@ import * as THREE from 'three';
     { t: 0.32, pos: [ 3.2, 2.6, 9.0], target: [ 1.5, 1.7, 6.2], fov: 40 }, // PANEL FOCUS · orbit
     { t: 0.42, pos: [ 3.5, 1.6, 3.5], target: [-8,   0.8, 3.5], fov: 40 }, // CROP SIDE VIEW · arrive (90° turn into alley)
     { t: 0.52, pos: [ 8,   0.7, 3.5], target: [-12,  0.6, 3.5], fov: 36 }, // CROP SIDE VIEW · settle (dolly east, look west)
-    { t: 0.58, pos: [ 3.4, 2.2, 7.8], target: [ 2,   1.6, 5.2], fov: 38 }, // PLANT FOCUS · arrive
-    { t: 0.66, pos: [ 2.4, 1.6, 7.6], target: [ 2,   1.2, 5.2], fov: 37 }, // PLANT FOCUS · settle
-    { t: 0.76, pos: [ 4.5, 1.4, 8.6], target: [ 2.4, 0.5, 6.0], fov: 39 }, // SENSOR FOCUS · arrive
-    { t: 0.84, pos: [ 3.6, 2.5, 9.2], target: [ 3.2, 2.5, 7.0], fov: 41 }, // SENSOR FOCUS · network
+    { t: 0.58, pos: [ 3.4, 2.2, 5.7], target: [ 2,   1.6, 3.1], fov: 38 }, // PLANT FOCUS · arrive (alley center)
+    { t: 0.66, pos: [ 2.4, 1.6, 5.5], target: [ 2,   1.2, 3.1], fov: 37 }, // PLANT FOCUS · settle
+    { t: 0.76, pos: [ 3.5, 1.4, 7.8], target: [ 1.5, 0.5, 6.2], fov: 39 }, // SENSOR FOCUS · arrive (under hero panel)
+    { t: 0.84, pos: [ 3.0, 2.5, 8.5], target: [ 2.3, 2.5, 7.2], fov: 41 }, // SENSOR FOCUS · network
     { t: 0.92, pos: [ 4.5, 7,  13  ], target: [ 1.5, 1.0, 4  ], fov: 43 }, // pull back
     { t: 1.00, pos: [ 0,  10, 17  ], target: [ 0,   1,   0  ], fov: 43 }, // final wide for logo
   ];
@@ -424,17 +424,10 @@ import * as THREE from 'three';
   // ============================================================
   // GROUND
   // ============================================================
-  // Ground starts brown (warm soil) and lerps to cream (= background) as
-  // the camera descends, so the terrain reads as "field" up top and then
-  // dissolves into the cream backdrop for the intimate close-up beats.
-  // Color lerp lives in applyOverlaysForProgress so it stays in sync with
-  // the storyboard windows.
-  const COLOR_SOIL  = new THREE.Color('#5C3A1F');
-  const COLOR_CREAM = new THREE.Color(COLORS.cream);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(220, 220),
     new THREE.MeshStandardMaterial({
-      color: COLOR_SOIL.clone(), roughness: 0.96, metalness: 0,
+      color: COLORS.cream, roughness: 0.96, metalness: 0,
     }),
   );
   ground.rotation.x = -Math.PI / 2;
@@ -684,16 +677,48 @@ import * as THREE from 'three';
       // Tiny per-tracker tilt offset for variety
       t.userData.tiltOffset = (Math.random() - 0.5) * 0.06;
       // Hero panel = col 5, row 3 → world position (1.5, *, 6.2),
-      // sits directly behind the hero grain trio at (2, 0, 5.2).
+      // sits adjacent to the hero grain trio (now at (2, 0, 3.1)).
       // Picked as the subject of the panel-focus beat.
       if (c === 5 && r === 3) {
         t.userData.isHero = true;
         heroTracker = t;
       }
+      // Start invisible — the intro beat scales them up to 1 in a
+      // staggered ripple while the lime grid fades out.
+      t.scale.setScalar(0);
       scene.add(t);
       trackers.push(t);
     }
   }
+
+  // ============================================================
+  // INTRO GRID — a thin lime grid drawn on the ground at panel
+  // row/col positions. Visible at scroll start; panels emerge at
+  // its nodes; grid fades out by ~t=0.16.
+  // ============================================================
+  const gridMat = new THREE.LineBasicMaterial({
+    color: 0x8AE932, transparent: true, opacity: 0,
+  });
+  const gridPoints = [];
+  const GRID_HALF_X = (CONFIG.cols - 1) / 2 * CONFIG.colSpacing + 1.5;
+  const GRID_HALF_Z = (CONFIG.rows - 1) / 2 * CONFIG.rowSpacing + 1.5;
+  // Horizontal lines (one per panel row, running along x)
+  for (let r = 0; r < CONFIG.rows; r++) {
+    const z = (r - (CONFIG.rows - 1) / 2) * CONFIG.rowSpacing;
+    gridPoints.push(new THREE.Vector3(-GRID_HALF_X, 0.02, z));
+    gridPoints.push(new THREE.Vector3( GRID_HALF_X, 0.02, z));
+  }
+  // Vertical lines (one per panel column, running along z)
+  for (let c = 0; c < CONFIG.cols; c++) {
+    const x = (c - (CONFIG.cols - 1) / 2) * CONFIG.colSpacing;
+    gridPoints.push(new THREE.Vector3(x, 0.02, -GRID_HALF_Z));
+    gridPoints.push(new THREE.Vector3(x, 0.02,  GRID_HALF_Z));
+  }
+  const introGrid = new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints(gridPoints),
+    gridMat,
+  );
+  scene.add(introGrid);
 
   // ============================================================
   // PANEL FOCUS ACCENTS — wireframe outline on the hero panel +
@@ -777,23 +802,20 @@ import * as THREE from 'three';
   }
 
   // ============================================================
-  // SENSOR BOXES — distributed across the (now wider) field.
-  // Keep one near the camera focal point (~x=2, z=5) so the
-  // close-up segment has a sensor in frame.
+  // SENSOR BOXES — exactly 4 stations, each at a tracker (x, z)
+  // so the sensor sits directly under a panel pole. Never inter-row.
   // ============================================================
   const sensorBoxes = [];
   const sensorPlacements = [
-    // Hero one — visible in close-up shot (camera target at (2, 1.6, 5.2))
-    { x:  2.4, z:  6.0,  r: -0.30 },
-    // Spread across the field
-    { x: -2.6, z: -0.5,  r:  0.55 },
-    { x:  5.8, z:  5.5,  r:  0.30 },
-    { x: -5.0, z:  0.7,  r: -0.45 },
-    { x:  8.2, z: -3.5,  r:  0.10 },
-    { x: -8.5, z: -6.0,  r:  0.85 },
-    { x:  0.0, z: -9.0,  r: -0.20 },
-    { x: 10.5, z:  9.0,  r:  0.40 },
-    { x: -3.2, z: 10.5,  r: -0.80 },
+    // Hero — under the hero panel (col 5, row 3). The sensor-focus
+    // beat camera lands here; neural-net + database fan out from it.
+    { x:  1.5, z:  6.2,  r: -0.30 },
+    // South-west
+    { x: -7.5, z: -6.2,  r:  0.85 },
+    // East, same row as hero
+    { x:  7.5, z:  6.2,  r:  0.30 },
+    // Center-west, middle row
+    { x: -4.5, z:  0.0,  r: -0.45 },
   ];
   for (const p of sensorPlacements) {
     const sb = createSensorBox();
@@ -818,20 +840,20 @@ import * as THREE from 'three';
   // It grows in via scale animation between progress 0.55 → 0.80.
   // ============================================================
   const grainPlant = createGrainPlant();
-  grainPlant.position.set(2, 0, 5.2);
+  grainPlant.position.set(2, 0, 3.1);
   grainPlant.scale.setScalar(0.001);  // starts invisible
   scene.add(grainPlant);
 
   // A second smaller grain plant nearby for visual richness
   const grainPlant2 = createGrainPlant();
-  grainPlant2.position.set(2.35, 0, 4.85);
+  grainPlant2.position.set(2.30, 0, 2.95);
   grainPlant2.rotation.y = 1.2;
   grainPlant2.scale.setScalar(0.001);
   scene.add(grainPlant2);
 
   // A third even smaller one to break the symmetry
   const grainPlant3 = createGrainPlant();
-  grainPlant3.position.set(1.7, 0, 5.5);
+  grainPlant3.position.set(1.70, 0, 3.30);
   grainPlant3.rotation.y = -0.6;
   grainPlant3.scale.setScalar(0.001);
   scene.add(grainPlant3);
@@ -857,9 +879,9 @@ import * as THREE from 'three';
       const zJitter = z + (Math.random() - 0.5) * 1.0;
 
       // Skip grain plants that would land on the close-up trio's spot
-      // (radius 1.5 around x=2, z=5.2) so the hero plants stay clear
+      // (radius 1.5 around x=2, z=3.1, the new alley-center position)
       const dx = x - 2;
-      const dz = zJitter - 5.2;
+      const dz = zJitter - 3.1;
       if (dx * dx + dz * dz < 1.5 * 1.5) continue;
 
       // Skip if very close to a tracker pole
@@ -961,13 +983,15 @@ import * as THREE from 'three';
   // of overdraw cost. The tracker LEDs still pulse, so the instrumentation
   // story still reads, just without the rising columns.
   if (CONFIG.dataTrails) {
+    // Sensor trails — gated to the sensor-focus window in the tick loop
+    // (kind: 'trail' with source: 'sensor' so they don't fire until the user
+    //  reaches the sensor beat).
     sensorBoxes.forEach((sb) => {
       const particles = createDataTrail(sb.position.x, sb.position.z, 7.5, 9);
-      dataLayerObjects.push({ kind: 'trail', particles, speed: 0.18 });
+      dataLayerObjects.push({ kind: 'trail', particles, speed: 0.18, source: 'sensor' });
     });
 
-    // Trails rising from a subset of trackers (every 4th one) — every panel
-    // is instrumented, but trails on every one would be visually noisy
+    // Tracker trails — always-on telemetry from a subset of panels
     trackers.forEach((tr, idx) => {
       if (idx % 4 !== 0) return;
       const particles = createDataTrail(
@@ -976,7 +1000,7 @@ import * as THREE from 'three';
         6.0,
         7,
       );
-      dataLayerObjects.push({ kind: 'trail', particles, speed: 0.15 });
+      dataLayerObjects.push({ kind: 'trail', particles, speed: 0.15, source: 'tracker' });
     });
   }
 
@@ -1014,7 +1038,7 @@ import * as THREE from 'three';
   // dataLayerObjects is declared) rather than next to the grain
   // plants so the pushes resolve.
   // ============================================================
-  const PLANT_X = 2, PLANT_Z = 5.2;
+  const PLANT_X = 2, PLANT_Z = 3.1;  // inter-row alley center (between rows at z=0 and z=6.2)
 
   const matLightCone = new THREE.MeshBasicMaterial({
     color: '#FFE7A8',
@@ -1122,21 +1146,23 @@ import * as THREE from 'three';
   });
 
   // Node positions arranged along the sensor → database arc
+  // Network anchored at the relocated hero sensor (1.5, *, 6.2).
+  // All positions shifted from the v2 layout by Δx = -0.9, Δz = +0.2.
   const nnInputs = [
-    new THREE.Vector3(2.40, 1.30, 6.00),
-    new THREE.Vector3(2.50, 1.40, 6.15),
+    new THREE.Vector3(1.50, 1.30, 6.20),
+    new THREE.Vector3(1.60, 1.40, 6.35),
   ];
   const nnHidden = [
-    new THREE.Vector3(2.65, 1.85, 6.30),
-    new THREE.Vector3(2.78, 1.95, 6.40),
-    new THREE.Vector3(2.72, 2.05, 6.50),
-    new THREE.Vector3(2.88, 1.90, 6.50),
+    new THREE.Vector3(1.75, 1.85, 6.50),
+    new THREE.Vector3(1.88, 1.95, 6.60),
+    new THREE.Vector3(1.82, 2.05, 6.70),
+    new THREE.Vector3(1.98, 1.90, 6.70),
   ];
   const nnOutputs = [
-    new THREE.Vector3(3.05, 2.45, 6.80),
-    new THREE.Vector3(3.10, 2.55, 6.90),
+    new THREE.Vector3(2.15, 2.45, 7.00),
+    new THREE.Vector3(2.20, 2.55, 7.10),
   ];
-  const nnDBTop = new THREE.Vector3(3.2, 3.15, 7.0);
+  const nnDBTop = new THREE.Vector3(2.3, 3.15, 7.2);
 
   const nnNodeGeom = new THREE.SphereGeometry(0.05, 12, 12);
   function addNNNode(pos, phase) {
@@ -1180,7 +1206,7 @@ import * as THREE from 'three';
   // Database stack — 3 flat torus rings stacked vertically.
   // TorusGeometry's default axis is z; rotating x by π/2 lays it flat
   // so the rings stack along y (canonical "DB cylinder" silhouette).
-  const dbCenter = new THREE.Vector3(3.2, 3.0, 7.0);
+  const dbCenter = new THREE.Vector3(2.3, 3.0, 7.2);
   const dbTorusGeom = new THREE.TorusGeometry(0.20, 0.04, 8, 32);
   [-0.15, 0, 0.15].forEach((dy, idx) => {
     const ring = new THREE.Mesh(dbTorusGeom, matDBRingProto.clone());
@@ -1428,14 +1454,14 @@ import * as THREE from 'three';
   }
 
   function applyOverlaysForProgress(p) {
-    // Terrain fade — ground lerps brown (soil) → cream (= background) so
-    // the field reads as "real soil" during the overview + panel + side-
-    // view beats and then dissolves out for the intimate close-ups.
-    //   p < 0.18         : full soil
-    //   0.18 → 0.55      : lerp soil → cream
-    //   p > 0.55         : full cream (invisible against background)
-    const terrainT = Math.max(0, Math.min(1, (p - 0.18) / 0.37));
-    ground.material.color.lerpColors(COLOR_SOIL, COLOR_CREAM, terrainT);
+    // Intro grid — fully visible at start, fades out as the panels
+    // finish emerging. Hidden for the rest of the cinematic.
+    let gridOp;
+    if (p < 0.04)      gridOp = 0.70;
+    else if (p < 0.10) gridOp = 0.70;
+    else if (p < 0.16) gridOp = 0.70 * (1 - (p - 0.10) / 0.06);
+    else               gridOp = 0;
+    gridMat.opacity = gridOp;
 
     // Panel-focus accents — wireframe on hero panel + row-pitch line.
     // Triangular fade: ramp up 0.20→0.24, hold 0.24→0.36, ramp down 0.36→0.40.
@@ -1536,6 +1562,27 @@ import * as THREE from 'three';
     const closeUpStrength = Math.max(0, 1 - Math.abs(p - 0.72) / 0.18);
     const closeUpGesture = Math.sin(t * 0.85) * 0.075 * closeUpStrength;
 
+    // ============================================================
+    // INTRO — staggered emergence of the panel grid.
+    // Only active during the first ~16% of the cinematic; outside
+    // the window we early-return after locking scale at 1.
+    // ============================================================
+    if (smoothProgress < 0.16) {
+      const introT = smoothProgress / 0.16;  // 0 → 1 across the intro
+      const N = trackers.length;
+      for (let i = 0; i < N; i++) {
+        // Stagger each tracker over a 50% slice of the intro window.
+        // Earlier indices appear first → ripple across the grid.
+        const stagger = (i / N) * 0.50;
+        const localT  = (introT - stagger) / 0.50;
+        const eased   = smoothstep(Math.max(0, Math.min(1, localT)));
+        trackers[i].scale.setScalar(eased);
+      }
+    } else if (trackers[0].scale.x !== 1) {
+      // One-shot lock once the intro is over (cheap idempotent check).
+      for (const tr of trackers) tr.scale.setScalar(1);
+    }
+
     const tilt = scrollTilt + wobble + closeUpGesture;
     // Hero-panel extra gesture, centered on the panel-focus window (~0.30)
     // so the live-tracking motion is unmistakable when the camera is on it.
@@ -1547,10 +1594,18 @@ import * as THREE from 'three';
       tr.userData.pivot.rotation.x = trTilt;
     }
 
-    // Sensor LEDs pulse
-    for (const led of allLEDs) {
-      const phase = t * 1.4 + led.userData.phase;
-      led.material.emissiveIntensity = 0.45 + Math.sin(phase) * 0.3;
+    // Sensor LEDs — quiet idle outside the sensor-focus window, full pulse
+    // inside it. Keeps the LEDs from drawing attention before their beat.
+    const sensorActive = sensorFocusFade(smoothProgress);
+    if (sensorActive > 0) {
+      for (const led of allLEDs) {
+        const phase = t * 1.4 + led.userData.phase;
+        led.material.emissiveIntensity = sensorActive * (0.45 + Math.sin(phase) * 0.3);
+      }
+    } else {
+      for (const led of allLEDs) {
+        led.material.emissiveIntensity = 0.06;
+      }
     }
 
     // Data layer — animates the telemetry visualization
@@ -1559,25 +1614,37 @@ import * as THREE from 'three';
         const phase = t * 1.2 + obj.mesh.userData.phase;
         obj.mesh.material.emissiveIntensity = 0.5 + Math.sin(phase) * 0.4;
       } else if (obj.kind === 'trail') {
+        // Sensor-sourced trails inherit the sensor-focus fade; tracker
+        // trails are always at full opacity.
+        const sourceFade = obj.source === 'sensor' ? sensorActive : 1;
+        if (sourceFade <= 0) {
+          for (const p of obj.particles) p.material.opacity = 0;
+          continue;
+        }
         // Each particle ascends, wraps when it reaches the top
         for (const p of obj.particles) {
           // Cycle: each particle's y goes 0 → height, then wraps
           // Use a sawtooth that increments with time then mods
           const cyclePos = ((t * obj.speed) + p.userData.basePhase) % 1.0;
           p.position.y = 0.3 + cyclePos * p.userData.height;
-          // Fade out near the top
-          p.material.opacity = (1 - cyclePos) * 0.75;
+          // Fade out near the top (scaled by source gate)
+          p.material.opacity = sourceFade * (1 - cyclePos) * 0.75;
           // Slight horizontal drift for organic feel
           p.position.x = p.userData.originX + Math.sin(t * 0.7 + p.userData.basePhase * 6) * 0.05;
           p.position.z = p.userData.originZ + Math.cos(t * 0.6 + p.userData.basePhase * 6) * 0.05;
         }
       } else if (obj.kind === 'ripple') {
-        // Expand outward, fade as it grows. Period ~3.5s.
-        const period = 3.5;
-        const cyclePos = ((t + obj.mesh.userData.phaseOffset) % period) / period;
-        const radius = 0.4 + cyclePos * (obj.mesh.userData.maxRadius - 0.4);
-        obj.mesh.scale.set(radius / 0.41, radius / 0.41, 1);
-        obj.mesh.material.opacity = (1 - cyclePos) * 0.55;
+        // Ground ripples are sensor-emitted, so they also fade with the
+        // sensor focus envelope.
+        if (sensorActive <= 0) {
+          obj.mesh.material.opacity = 0;
+        } else {
+          const period = 3.5;
+          const cyclePos = ((t + obj.mesh.userData.phaseOffset) % period) / period;
+          const radius = 0.4 + cyclePos * (obj.mesh.userData.maxRadius - 0.4);
+          obj.mesh.scale.set(radius / 0.41, radius / 0.41, 1);
+          obj.mesh.material.opacity = sensorActive * (1 - cyclePos) * 0.55;
+        }
       } else if (obj.kind === 'lightMote') {
         // Falling motes inside the light cone. Gated to the plant-focus
         // window — outside it, opacity is zero so the particle pool is

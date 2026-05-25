@@ -21,13 +21,13 @@
      ============================================================ */
   #scrollytelling {
     position: relative;
-    height: 500vh;          /* total scroll length on desktop */
+    height: 560vh;          /* 500vh cinematic + 60vh hold tail on the logo */
     width: 100%;
     background: #EDECE7;
   }
   /* Mobile / tablet portrait: shorter cinematic so it's not a marathon to scroll */
   @media (max-width: 900px) {
-    #scrollytelling { height: 320vh; }
+    #scrollytelling { height: 360vh; }  /* 320vh cinematic + 40vh hold tail */
   }
   #pinned {
     position: sticky;
@@ -942,11 +942,17 @@ import * as THREE from 'three';
   // (Webflow page) drive the camera.
   const isEmbedded = window.parent !== window;
 
+  // Trailing scroll distance during which progress stays clamped at 1.0
+  // so the final logo composition lingers naturally before the sticky
+  // scene releases. Smaller on mobile where the whole scroll is shorter.
+  const HOLD_TAIL_VH = window.innerWidth <= 900 ? 40 : 60;
+
   function updateScrollProgress() {
     const total = scrollContainer.offsetHeight - window.innerHeight;
     if (total <= 0) { targetProgress = 0; return; }
-    const p = window.scrollY / total;
-    targetProgress = Math.max(0, Math.min(1, p));
+    const holdPx = (HOLD_TAIL_VH * window.innerHeight) / 100;
+    const usable = Math.max(1, total - holdPx);
+    targetProgress = Math.max(0, Math.min(1, window.scrollY / usable));
   }
 
   if (isEmbedded) {

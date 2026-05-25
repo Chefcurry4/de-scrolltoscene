@@ -337,15 +337,27 @@ import * as THREE from 'three';
   // plant grows into the foreground → gentle pull back for the
   // logo reveal.
   // ============================================================
+  // ============================================================
+  // STORYBOARD — 13 keyframes, four focus beats:
+  //   0.20–0.40  PANEL FOCUS   (hero panel, two angles, tilt visible)
+  //   0.40–0.56  CROP SIDE VIEW (eye-level inter-row alley, depth)
+  //   0.56–0.70  PLANT FOCUS   (grain trio, light + water VFX)
+  //   0.72–0.88  SENSOR FOCUS  (sensor → neural-net → database)
+  // ============================================================
   const cameraKeyframes = [
-    { t: 0.00, pos: [ 0,  52, 0.01], target: [ 0,   0,   0  ], fov: 52 },  // higher overhead
-    { t: 0.15, pos: [ 4,  46, 6   ], target: [ 0,   0.3, 1.5], fov: 50 },  // gentle drift
-    { t: 0.32, pos: [ 8,  32, 12  ], target: [ 1,   0.7, 3  ], fov: 47 },  // gradual descent
-    { t: 0.50, pos: [ 7,  16, 12  ], target: [ 2,   1.3, 4  ], fov: 43 },  // mid-altitude oblique
-    { t: 0.65, pos: [ 4,   7,  10 ], target: [ 2,   1.7, 5  ], fov: 39 },  // gentle approach
-    { t: 0.78, pos: [ 3,  1.9, 7.5], target: [ 2,   1.6, 5.2], fov: 36 },  // under-panel, plant in foreground
-    { t: 0.88, pos: [ 3.5, 5,   11], target: [ 1.5, 1.2, 3  ], fov: 39 },  // gentle pull up
-    { t: 1.00, pos: [ 0,  10,  17 ], target: [ 0,   1,   0  ], fov: 43 },  // final wide for logo
+    { t: 0.00, pos: [ 0,  52, 0.01], target: [ 0,   0,   0  ], fov: 52 },  // overhead — brown terrain
+    { t: 0.10, pos: [ 4,  40, 6   ], target: [ 1,   0.5, 2  ], fov: 50 },  // drift
+    { t: 0.18, pos: [ 6,  22, 10  ], target: [ 1.5, 1.2, 3  ], fov: 47 },  // approach toward hero panel
+    { t: 0.24, pos: [ 4.5, 3.2, 2.0], target: [ 1.5, 1.7, 6.2], fov: 41 }, // PANEL FOCUS · arrive
+    { t: 0.32, pos: [ 3.2, 2.6, 9.0], target: [ 1.5, 1.7, 6.2], fov: 40 }, // PANEL FOCUS · orbit
+    { t: 0.42, pos: [ 3.5, 1.6, 3.5], target: [-8,   0.8, 3.5], fov: 40 }, // CROP SIDE VIEW · arrive (90° turn into alley)
+    { t: 0.52, pos: [ 8,   0.7, 3.5], target: [-12,  0.6, 3.5], fov: 36 }, // CROP SIDE VIEW · settle (dolly east, look west)
+    { t: 0.58, pos: [ 3.4, 2.2, 7.8], target: [ 2,   1.6, 5.2], fov: 38 }, // PLANT FOCUS · arrive
+    { t: 0.66, pos: [ 2.4, 1.6, 7.6], target: [ 2,   1.2, 5.2], fov: 37 }, // PLANT FOCUS · settle
+    { t: 0.76, pos: [ 4.5, 1.4, 8.6], target: [ 2.4, 0.5, 6.0], fov: 39 }, // SENSOR FOCUS · arrive
+    { t: 0.84, pos: [ 3.6, 2.5, 9.2], target: [ 3.2, 2.5, 7.0], fov: 41 }, // SENSOR FOCUS · network
+    { t: 0.92, pos: [ 4.5, 7,  13  ], target: [ 1.5, 1.0, 4  ], fov: 43 }, // pull back
+    { t: 1.00, pos: [ 0,  10, 17  ], target: [ 0,   1,   0  ], fov: 43 }, // final wide for logo
   ];
 
   // ============================================================
@@ -412,10 +424,17 @@ import * as THREE from 'three';
   // ============================================================
   // GROUND
   // ============================================================
+  // Ground starts brown (warm soil) and lerps to cream (= background) as
+  // the camera descends, so the terrain reads as "field" up top and then
+  // dissolves into the cream backdrop for the intimate close-up beats.
+  // Color lerp lives in applyOverlaysForProgress so it stays in sync with
+  // the storyboard windows.
+  const COLOR_SOIL  = new THREE.Color('#5C3A1F');
+  const COLOR_CREAM = new THREE.Color(COLORS.cream);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(220, 220),
     new THREE.MeshStandardMaterial({
-      color: COLORS.cream, roughness: 0.96, metalness: 0,
+      color: COLOR_SOIL.clone(), roughness: 0.96, metalness: 0,
     }),
   );
   ground.rotation.x = -Math.PI / 2;
@@ -653,6 +672,7 @@ import * as THREE from 'three';
   // PLACE TRACKERS (wider field for bird's-eye intro)
   // ============================================================
   const trackers = [];
+  let heroTracker = null;
   for (let r = 0; r < CONFIG.rows; r++) {
     for (let c = 0; c < CONFIG.cols; c++) {
       const t = createTracker();
@@ -663,9 +683,48 @@ import * as THREE from 'three';
       );
       // Tiny per-tracker tilt offset for variety
       t.userData.tiltOffset = (Math.random() - 0.5) * 0.06;
+      // Hero panel = col 5, row 3 → world position (1.5, *, 6.2),
+      // sits directly behind the hero grain trio at (2, 0, 5.2).
+      // Picked as the subject of the panel-focus beat.
+      if (c === 5 && r === 3) {
+        t.userData.isHero = true;
+        heroTracker = t;
+      }
       scene.add(t);
       trackers.push(t);
     }
+  }
+
+  // ============================================================
+  // PANEL FOCUS ACCENTS — wireframe outline on the hero panel +
+  // a thin line marking the row-pitch axis to the next row.
+  // Both invisible by default; opacity ramped by progress during
+  // the panel-focus beat (0.20 → 0.40) inside applyOverlaysForProgress.
+  // ============================================================
+  const heroAccentMat = new THREE.LineBasicMaterial({
+    color: COLORS.lime, transparent: true, opacity: 0,
+  });
+  let heroPanelEdges = null;
+  let heroPitchLine = null;
+  if (heroTracker) {
+    // Match the panel BoxGeometry size used inside createTracker (2.35 × 0.06 × 1.18)
+    heroPanelEdges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(2.35, 0.06, 1.18)),
+      heroAccentMat,
+    );
+    // Parent to the pivot so the outline inherits the live tracker tilt
+    heroTracker.userData.pivot.add(heroPanelEdges);
+
+    // Row-pitch indicator: ground-level line from the hero pole base to
+    // the next-row pole base. World-space line, not parented to pivot.
+    heroPitchLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(heroTracker.position.x, 0.02, heroTracker.position.z),
+        new THREE.Vector3(heroTracker.position.x, 0.02, heroTracker.position.z + CONFIG.rowSpacing),
+      ]),
+      heroAccentMat,
+    );
+    scene.add(heroPitchLine);
   }
 
   // ============================================================
@@ -778,6 +837,89 @@ import * as THREE from 'three';
   scene.add(grainPlant3);
 
   const grainPlants = [grainPlant, grainPlant2, grainPlant3];
+
+  // ============================================================
+  // PLANT FOCUS VFX — soft warm light cone above the hero trio
+  // plus falling motes inside the cone (light) and droplets near
+  // the plant bases (water). The cone is a single mesh (cheap);
+  // particle pools are gated behind CONFIG.dataTrails on phones,
+  // mirroring the existing data-layer gating.
+  // ============================================================
+  const PLANT_X = 2, PLANT_Z = 5.2;
+
+  const matLightCone = new THREE.MeshBasicMaterial({
+    color: '#FFE7A8',
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const lightCone = new THREE.Mesh(
+    new THREE.ConeGeometry(0.9, 3.5, 24, 1, true),  // open-ended
+    matLightCone,
+  );
+  // Center the cone so the apex sits at y=3.5 and the base flares at y≈0,
+  // i.e. a spotlight beam descending onto the plant trio.
+  lightCone.position.set(PLANT_X, 1.75, PLANT_Z);
+  scene.add(lightCone);
+
+  if (CONFIG.dataTrails) {
+    // ---- Light motes: drift down inside the cone ----
+    const MOTE_COUNT = 30;
+    const moteParticles = [];
+    const matLightMote = new THREE.MeshBasicMaterial({
+      color: '#FFF4D9', transparent: true, opacity: 0,
+    });
+    for (let i = 0; i < MOTE_COUNT; i++) {
+      const r = Math.random() * 0.85;
+      const a = Math.random() * Math.PI * 2;
+      const ox = PLANT_X + Math.cos(a) * r;
+      const oz = PLANT_Z + Math.sin(a) * r;
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(0.014, 6, 6),
+        matLightMote.clone(),
+      );
+      m.position.set(ox, 3.0, oz);
+      m.userData.originX = ox;
+      m.userData.originZ = oz;
+      m.userData.basePhase = i / MOTE_COUNT;
+      m.userData.speed = 0.32 + Math.random() * 0.18;
+      scene.add(m);
+      moteParticles.push(m);
+    }
+    dataLayerObjects.push({ kind: 'lightMote', particles: moteParticles });
+
+    // ---- Water droplets: fall near plant bases, fade on impact ----
+    const DROP_COUNT = 10;
+    const dropParticles = [];
+    const matWaterDrop = new THREE.MeshStandardMaterial({
+      color: '#7FB8D6',
+      emissive: '#7FB8D6',
+      emissiveIntensity: 0.4,
+      transparent: true,
+      opacity: 0,
+      roughness: 0.4,
+    });
+    for (let i = 0; i < DROP_COUNT; i++) {
+      const r = 0.15 + Math.random() * 0.35;
+      const a = Math.random() * Math.PI * 2;
+      const ox = PLANT_X + Math.cos(a) * r;
+      const oz = PLANT_Z + Math.sin(a) * r;
+      const d = new THREE.Mesh(
+        new THREE.SphereGeometry(0.025, 8, 8),
+        matWaterDrop.clone(),
+      );
+      d.position.set(ox, 1.2, oz);
+      d.userData.originX = ox;
+      d.userData.originZ = oz;
+      d.userData.basePhase = i / DROP_COUNT;
+      d.userData.speed = 0.55 + Math.random() * 0.30;
+      scene.add(d);
+      dropParticles.push(d);
+    }
+    dataLayerObjects.push({ kind: 'plantDrop', particles: dropParticles });
+  }
 
   // ============================================================
   // FIELD GRAIN — additional grain plants scattered across the
@@ -947,6 +1089,107 @@ import * as THREE from 'three';
   }
 
   // ============================================================
+  // SENSOR FOCUS VFX — neural-net + database visualization.
+  // Built once at init, parented to a single group, gated to the
+  // sensor-focus window 0.72 → 0.88 via sensorFocusFade.
+  //
+  // Topology: 2 input nodes (above hero sensor antenna) →
+  //           4 hidden nodes → 2 output nodes → top of DB stack.
+  // 18 edges, 18 traveling pulses (one per edge, phone-gated).
+  // 3 stacked torus rings act as the abstract "database".
+  // ============================================================
+  const neuralGroup = new THREE.Group();
+  scene.add(neuralGroup);
+
+  // Shared materials — edges & pulses can all share opacity, set
+  // once per frame in applyOverlaysForProgress. Node and ring
+  // materials are cloned per-mesh so each can pulse independently.
+  const matNNEdgeShared  = new THREE.LineBasicMaterial({
+    color: 0x8AE932, transparent: true, opacity: 0,
+  });
+  const matNNPulseShared = new THREE.MeshBasicMaterial({
+    color: 0x8AE932, transparent: true, opacity: 0,
+  });
+  const matNNNodeProto = new THREE.MeshStandardMaterial({
+    color: 0x14443A, emissive: 0x8AE932, emissiveIntensity: 0,
+    transparent: true, opacity: 0, roughness: 0.4,
+  });
+  const matDBRingProto = new THREE.MeshStandardMaterial({
+    color: 0x14443A, emissive: 0x8AE932, emissiveIntensity: 0,
+    transparent: true, opacity: 0, roughness: 0.5,
+  });
+
+  // Node positions arranged along the sensor → database arc
+  const nnInputs = [
+    new THREE.Vector3(2.40, 1.30, 6.00),
+    new THREE.Vector3(2.50, 1.40, 6.15),
+  ];
+  const nnHidden = [
+    new THREE.Vector3(2.65, 1.85, 6.30),
+    new THREE.Vector3(2.78, 1.95, 6.40),
+    new THREE.Vector3(2.72, 2.05, 6.50),
+    new THREE.Vector3(2.88, 1.90, 6.50),
+  ];
+  const nnOutputs = [
+    new THREE.Vector3(3.05, 2.45, 6.80),
+    new THREE.Vector3(3.10, 2.55, 6.90),
+  ];
+  const nnDBTop = new THREE.Vector3(3.2, 3.15, 7.0);
+
+  const nnNodeGeom = new THREE.SphereGeometry(0.05, 12, 12);
+  function addNNNode(pos, phase) {
+    const m = new THREE.Mesh(nnNodeGeom, matNNNodeProto.clone());
+    m.position.copy(pos);
+    m.userData.phase = phase;
+    neuralGroup.add(m);
+    dataLayerObjects.push({ kind: 'nnNode', mesh: m });
+  }
+  nnInputs.forEach((v, i)  => addNNNode(v, i * 0.7));
+  nnHidden.forEach((v, i)  => addNNNode(v, 0.4 + i * 0.6));
+  nnOutputs.forEach((v, i) => addNNNode(v, 1.1 + i * 0.5));
+
+  // Edges + traveling pulses
+  const nnPulseGeom = new THREE.SphereGeometry(0.025, 8, 8);
+  let nnEdgeIdx = 0;
+  function addNNEdge(a, b, speed) {
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([a, b]),
+      matNNEdgeShared,
+    );
+    neuralGroup.add(line);
+    if (CONFIG.dataTrails) {
+      const pulse = new THREE.Mesh(nnPulseGeom, matNNPulseShared);
+      pulse.userData.a = a;
+      pulse.userData.b = b;
+      pulse.userData.speed = speed;
+      pulse.userData.phase = (nnEdgeIdx++ % 8) / 8;
+      neuralGroup.add(pulse);
+      dataLayerObjects.push({ kind: 'nnPulse', mesh: pulse });
+    }
+  }
+  for (const a of nnInputs) {
+    for (const b of nnHidden) addNNEdge(a, b, 0.45);
+  }
+  for (const a of nnHidden) {
+    for (const b of nnOutputs) addNNEdge(a, b, 0.55);
+  }
+  for (const a of nnOutputs) addNNEdge(a, nnDBTop, 0.50);
+
+  // Database stack — 3 flat torus rings stacked vertically.
+  // TorusGeometry's default axis is z; rotating x by π/2 lays it flat
+  // so the rings stack along y (canonical "DB cylinder" silhouette).
+  const dbCenter = new THREE.Vector3(3.2, 3.0, 7.0);
+  const dbTorusGeom = new THREE.TorusGeometry(0.20, 0.04, 8, 32);
+  [-0.15, 0, 0.15].forEach((dy, idx) => {
+    const ring = new THREE.Mesh(dbTorusGeom, matDBRingProto.clone());
+    ring.position.set(dbCenter.x, dbCenter.y + dy, dbCenter.z);
+    ring.rotation.x = Math.PI / 2;
+    ring.userData.phase = idx * 0.55;
+    neuralGroup.add(ring);
+    dataLayerObjects.push({ kind: 'dbRing', mesh: ring });
+  });
+
+  // ============================================================
   // SCROLL → PROGRESS
   // ============================================================
   let targetProgress = 0;
@@ -1029,6 +1272,21 @@ import * as THREE from 'three';
 
   function smoothstep(t) { return t * t * (3 - 2 * t); }
   function lerp(a, b, t) { return a + (b - a) * t; }
+
+  // Focus-beat fade profiles — triangular envelopes around each beat
+  // (ramp up, hold, ramp down). Returns 0 outside the beat, 1 at the peak.
+  function plantFocusFade(p) {
+    if (p < 0.56 || p > 0.70) return 0;
+    if (p < 0.60) return (p - 0.56) / 0.04;
+    if (p < 0.66) return 1;
+    return 1 - (p - 0.66) / 0.04;
+  }
+  function sensorFocusFade(p) {
+    if (p < 0.72 || p > 0.88) return 0;
+    if (p < 0.76) return (p - 0.72) / 0.04;
+    if (p < 0.84) return 1;
+    return 1 - (p - 0.84) / 0.04;
+  }
 
   // Remap scroll progress (using keyframe t values) onto the
   // curve's uniform parameter space.
@@ -1168,6 +1426,33 @@ import * as THREE from 'three';
   }
 
   function applyOverlaysForProgress(p) {
+    // Terrain fade — ground lerps brown (soil) → cream (= background) so
+    // the field reads as "real soil" during the overview + panel + side-
+    // view beats and then dissolves out for the intimate close-ups.
+    //   p < 0.18         : full soil
+    //   0.18 → 0.55      : lerp soil → cream
+    //   p > 0.55         : full cream (invisible against background)
+    const terrainT = Math.max(0, Math.min(1, (p - 0.18) / 0.37));
+    ground.material.color.lerpColors(COLOR_SOIL, COLOR_CREAM, terrainT);
+
+    // Panel-focus accents — wireframe on hero panel + row-pitch line.
+    // Triangular fade: ramp up 0.20→0.24, hold 0.24→0.36, ramp down 0.36→0.40.
+    let panelAccentOp;
+    if (p < 0.24)      panelAccentOp = Math.max(0, (p - 0.20) / 0.04);
+    else if (p < 0.36) panelAccentOp = 1;
+    else               panelAccentOp = Math.max(0, 1 - (p - 0.36) / 0.04);
+    heroAccentMat.opacity = panelAccentOp * 0.85;
+
+    // Plant-focus light cone — soft warm glow descending on the trio.
+    // Reuses the plantFocusFade envelope so it lines up with motes/drops.
+    matLightCone.opacity = plantFocusFade(p) * 0.18;
+
+    // Sensor-focus shared materials (edges + traveling pulses).
+    // Cloned node/ring materials handle their own opacity in the tick.
+    const sensorFade = sensorFocusFade(p);
+    matNNEdgeShared.opacity  = sensorFade * 0.75;
+    matNNPulseShared.opacity = sensorFade * 0.95;
+
     // Dim overlay starts fading in after 78%, reaches ~65% by end
     const dimP = Math.max(0, (p - 0.78) / 0.22);
     dim.style.opacity = (dimP * 0.65).toFixed(3);
@@ -1250,8 +1535,14 @@ import * as THREE from 'three';
     const closeUpGesture = Math.sin(t * 0.85) * 0.075 * closeUpStrength;
 
     const tilt = scrollTilt + wobble + closeUpGesture;
+    // Hero-panel extra gesture, centered on the panel-focus window (~0.30)
+    // so the live-tracking motion is unmistakable when the camera is on it.
+    const heroFocusStrength = Math.max(0, 1 - Math.abs(p - 0.30) / 0.10);
+    const heroGesture = Math.sin(t * 1.1) * 0.18 * heroFocusStrength;
     for (const tr of trackers) {
-      tr.userData.pivot.rotation.x = tilt + tr.userData.tiltOffset;
+      let trTilt = tilt + tr.userData.tiltOffset;
+      if (tr.userData.isHero) trTilt += heroGesture;
+      tr.userData.pivot.rotation.x = trTilt;
     }
 
     // Sensor LEDs pulse
@@ -1285,13 +1576,78 @@ import * as THREE from 'three';
         const radius = 0.4 + cyclePos * (obj.mesh.userData.maxRadius - 0.4);
         obj.mesh.scale.set(radius / 0.41, radius / 0.41, 1);
         obj.mesh.material.opacity = (1 - cyclePos) * 0.55;
+      } else if (obj.kind === 'lightMote') {
+        // Falling motes inside the light cone. Gated to the plant-focus
+        // window — outside it, opacity is zero so the particle pool is
+        // effectively invisible (positions still update, but cost is tiny).
+        const fade = plantFocusFade(smoothProgress);
+        if (fade <= 0) {
+          for (const p of obj.particles) p.material.opacity = 0;
+        } else {
+          for (const p of obj.particles) {
+            const cyclePos = ((t * p.userData.speed) + p.userData.basePhase) % 1.0;
+            // Descend: y goes 3.0 → 0
+            p.position.y = 3.0 * (1 - cyclePos);
+            // Fade near top and bottom for a soft loop
+            const profile = Math.sin(cyclePos * Math.PI);  // 0 at edges, 1 in middle
+            p.material.opacity = fade * 0.75 * profile;
+            // Tiny horizontal drift
+            const drift = Math.sin(t * 0.6 + p.userData.basePhase * 7) * 0.04;
+            p.position.x = p.userData.originX + drift;
+            p.position.z = p.userData.originZ + Math.cos(t * 0.55 + p.userData.basePhase * 7) * 0.04;
+          }
+        }
+      } else if (obj.kind === 'nnNode') {
+        // Cloned material per node so each pulses independently.
+        // Opacity gated to the sensor-focus window.
+        const fade = sensorFocusFade(smoothProgress);
+        obj.mesh.material.opacity = fade;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 1.6 + obj.mesh.userData.phase);
+        obj.mesh.material.emissiveIntensity = fade * (0.6 + pulse * 0.9);
+      } else if (obj.kind === 'nnPulse') {
+        // Shared material; only position updates per-mesh.
+        // Opacity is set once in applyOverlaysForProgress.
+        const a = obj.mesh.userData.a;
+        const b = obj.mesh.userData.b;
+        const u = ((t * obj.mesh.userData.speed) + obj.mesh.userData.phase) % 1.0;
+        obj.mesh.position.set(
+          a.x + (b.x - a.x) * u,
+          a.y + (b.y - a.y) * u,
+          a.z + (b.z - a.z) * u,
+        );
+      } else if (obj.kind === 'dbRing') {
+        // Bottom-to-top travel: rings pulse with phase offset, in sync
+        // with the network pulses arriving.
+        const fade = sensorFocusFade(smoothProgress);
+        obj.mesh.material.opacity = fade;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 1.2 - obj.mesh.userData.phase * 2);
+        obj.mesh.material.emissiveIntensity = fade * (0.4 + pulse * 1.3);
+      } else if (obj.kind === 'plantDrop') {
+        // Water droplets falling near plant bases. Same window gating.
+        const fade = plantFocusFade(smoothProgress);
+        if (fade <= 0) {
+          for (const d of obj.particles) d.material.opacity = 0;
+        } else {
+          for (const d of obj.particles) {
+            const cyclePos = ((t * d.userData.speed) + d.userData.basePhase) % 1.0;
+            d.position.y = 1.2 * (1 - cyclePos);
+            // Visible during the fall, brief flash at landing, then hidden
+            // until next cycle. Profile peaks just before impact.
+            let profile;
+            if (cyclePos < 0.85)      profile = 0.9;
+            else if (cyclePos < 0.95) profile = 0.9 - (cyclePos - 0.85) * 9;  // sharp fade
+            else                      profile = 0;
+            d.material.opacity = fade * profile;
+          }
+        }
       }
     }
 
     // Grain plant growth — driven by scroll progress, not time.
-    // Sprouts between 0.55 and 0.80; full size after.
-    // Plants grow with slight stagger so they don't all pop in unison.
-    const baseGrowP = (smoothProgress - 0.55) / 0.25;
+    // Retimed for the v2 storyboard: sprouts inside the plant-focus window
+    // (0.56 → 0.68) so the growth coincides with the camera holding on the
+    // hero trio. Plants grow with a slight stagger so they don't pop in unison.
+    const baseGrowP = (smoothProgress - 0.56) / 0.12;
     grainPlants.forEach((plant, idx) => {
       const offset = idx * 0.06;  // small stagger per plant
       const localP = Math.max(0, Math.min(1, baseGrowP - offset));

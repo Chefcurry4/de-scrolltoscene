@@ -839,89 +839,6 @@ import * as THREE from 'three';
   const grainPlants = [grainPlant, grainPlant2, grainPlant3];
 
   // ============================================================
-  // PLANT FOCUS VFX — soft warm light cone above the hero trio
-  // plus falling motes inside the cone (light) and droplets near
-  // the plant bases (water). The cone is a single mesh (cheap);
-  // particle pools are gated behind CONFIG.dataTrails on phones,
-  // mirroring the existing data-layer gating.
-  // ============================================================
-  const PLANT_X = 2, PLANT_Z = 5.2;
-
-  const matLightCone = new THREE.MeshBasicMaterial({
-    color: '#FFE7A8',
-    transparent: true,
-    opacity: 0,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  const lightCone = new THREE.Mesh(
-    new THREE.ConeGeometry(0.9, 3.5, 24, 1, true),  // open-ended
-    matLightCone,
-  );
-  // Center the cone so the apex sits at y=3.5 and the base flares at y≈0,
-  // i.e. a spotlight beam descending onto the plant trio.
-  lightCone.position.set(PLANT_X, 1.75, PLANT_Z);
-  scene.add(lightCone);
-
-  if (CONFIG.dataTrails) {
-    // ---- Light motes: drift down inside the cone ----
-    const MOTE_COUNT = 30;
-    const moteParticles = [];
-    const matLightMote = new THREE.MeshBasicMaterial({
-      color: '#FFF4D9', transparent: true, opacity: 0,
-    });
-    for (let i = 0; i < MOTE_COUNT; i++) {
-      const r = Math.random() * 0.85;
-      const a = Math.random() * Math.PI * 2;
-      const ox = PLANT_X + Math.cos(a) * r;
-      const oz = PLANT_Z + Math.sin(a) * r;
-      const m = new THREE.Mesh(
-        new THREE.SphereGeometry(0.014, 6, 6),
-        matLightMote.clone(),
-      );
-      m.position.set(ox, 3.0, oz);
-      m.userData.originX = ox;
-      m.userData.originZ = oz;
-      m.userData.basePhase = i / MOTE_COUNT;
-      m.userData.speed = 0.32 + Math.random() * 0.18;
-      scene.add(m);
-      moteParticles.push(m);
-    }
-    dataLayerObjects.push({ kind: 'lightMote', particles: moteParticles });
-
-    // ---- Water droplets: fall near plant bases, fade on impact ----
-    const DROP_COUNT = 10;
-    const dropParticles = [];
-    const matWaterDrop = new THREE.MeshStandardMaterial({
-      color: '#7FB8D6',
-      emissive: '#7FB8D6',
-      emissiveIntensity: 0.4,
-      transparent: true,
-      opacity: 0,
-      roughness: 0.4,
-    });
-    for (let i = 0; i < DROP_COUNT; i++) {
-      const r = 0.15 + Math.random() * 0.35;
-      const a = Math.random() * Math.PI * 2;
-      const ox = PLANT_X + Math.cos(a) * r;
-      const oz = PLANT_Z + Math.sin(a) * r;
-      const d = new THREE.Mesh(
-        new THREE.SphereGeometry(0.025, 8, 8),
-        matWaterDrop.clone(),
-      );
-      d.position.set(ox, 1.2, oz);
-      d.userData.originX = ox;
-      d.userData.originZ = oz;
-      d.userData.basePhase = i / DROP_COUNT;
-      d.userData.speed = 0.55 + Math.random() * 0.30;
-      scene.add(d);
-      dropParticles.push(d);
-    }
-    dataLayerObjects.push({ kind: 'plantDrop', particles: dropParticles });
-  }
-
-  // ============================================================
   // FIELD GRAIN — additional grain plants scattered across the
   // whole field, between tracker rows and in the strips between
   // panels. These don't grow on scroll (only the close-up trio
@@ -1086,6 +1003,91 @@ import * as THREE from 'three';
         dataLayerObjects.push({ kind: 'ripple', mesh: ring });
       }
     });
+  }
+
+  // ============================================================
+  // PLANT FOCUS VFX — soft warm light cone above the hero trio
+  // plus falling motes inside the cone (light) and droplets near
+  // the plant bases (water). The cone is a single mesh (cheap);
+  // particle pools are gated behind CONFIG.dataTrails on phones,
+  // mirroring the existing data-layer gating. Lives here (after
+  // dataLayerObjects is declared) rather than next to the grain
+  // plants so the pushes resolve.
+  // ============================================================
+  const PLANT_X = 2, PLANT_Z = 5.2;
+
+  const matLightCone = new THREE.MeshBasicMaterial({
+    color: '#FFE7A8',
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const lightCone = new THREE.Mesh(
+    new THREE.ConeGeometry(0.9, 3.5, 24, 1, true),  // open-ended
+    matLightCone,
+  );
+  // Center the cone so the apex sits at y=3.5 and the base flares at y≈0,
+  // i.e. a spotlight beam descending onto the plant trio.
+  lightCone.position.set(PLANT_X, 1.75, PLANT_Z);
+  scene.add(lightCone);
+
+  if (CONFIG.dataTrails) {
+    // ---- Light motes: drift down inside the cone ----
+    const MOTE_COUNT = 30;
+    const moteParticles = [];
+    const matLightMote = new THREE.MeshBasicMaterial({
+      color: '#FFF4D9', transparent: true, opacity: 0,
+    });
+    for (let i = 0; i < MOTE_COUNT; i++) {
+      const r = Math.random() * 0.85;
+      const a = Math.random() * Math.PI * 2;
+      const ox = PLANT_X + Math.cos(a) * r;
+      const oz = PLANT_Z + Math.sin(a) * r;
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(0.014, 6, 6),
+        matLightMote.clone(),
+      );
+      m.position.set(ox, 3.0, oz);
+      m.userData.originX = ox;
+      m.userData.originZ = oz;
+      m.userData.basePhase = i / MOTE_COUNT;
+      m.userData.speed = 0.32 + Math.random() * 0.18;
+      scene.add(m);
+      moteParticles.push(m);
+    }
+    dataLayerObjects.push({ kind: 'lightMote', particles: moteParticles });
+
+    // ---- Water droplets: fall near plant bases, fade on impact ----
+    const DROP_COUNT = 10;
+    const dropParticles = [];
+    const matWaterDrop = new THREE.MeshStandardMaterial({
+      color: '#7FB8D6',
+      emissive: '#7FB8D6',
+      emissiveIntensity: 0.4,
+      transparent: true,
+      opacity: 0,
+      roughness: 0.4,
+    });
+    for (let i = 0; i < DROP_COUNT; i++) {
+      const r = 0.15 + Math.random() * 0.35;
+      const a = Math.random() * Math.PI * 2;
+      const ox = PLANT_X + Math.cos(a) * r;
+      const oz = PLANT_Z + Math.sin(a) * r;
+      const d = new THREE.Mesh(
+        new THREE.SphereGeometry(0.025, 8, 8),
+        matWaterDrop.clone(),
+      );
+      d.position.set(ox, 1.2, oz);
+      d.userData.originX = ox;
+      d.userData.originZ = oz;
+      d.userData.basePhase = i / DROP_COUNT;
+      d.userData.speed = 0.55 + Math.random() * 0.30;
+      scene.add(d);
+      dropParticles.push(d);
+    }
+    dataLayerObjects.push({ kind: 'plantDrop', particles: dropParticles });
   }
 
   // ============================================================

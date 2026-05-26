@@ -47,7 +47,13 @@
     inset: 0;
     width: 100%;
     height: 100%;
+    /* Hide canvas until the renderer has warmed up — the first ~8
+       rAF frames pay shader-compile + JIT cost; we hide them behind
+       the section's cream background and fade in once they're done. */
+    opacity: 0;
+    transition: opacity 350ms ease-out;
   }
+  #scene.ready { opacity: 1; }
   #scene canvas {
     display: block;
     width: 100% !important;
@@ -1815,6 +1821,23 @@ import * as THREE from 'three';
   renderer.compile(scene, camera);
   renderer.render(scene, camera);
   tick();
+
+  // Keep the canvas hidden until the rAF loop has run a handful of
+  // warm frames. The first 6-8 frames of a fresh WebGL context still
+  // pay shader-linking, uniform-upload, and JIT costs that we don't
+  // want the user to see. ~130ms of cream background, then fade in.
+  (function revealAfterWarmup() {
+    let frames = 0;
+    function step() {
+      if (++frames < 8) {
+        requestAnimationFrame(step);
+      } else {
+        const sceneEl = document.getElementById('scene');
+        if (sceneEl) sceneEl.classList.add('ready');
+      }
+    }
+    requestAnimationFrame(step);
+  })();
 })();
 </script>
 

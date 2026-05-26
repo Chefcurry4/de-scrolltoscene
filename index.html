@@ -21,13 +21,13 @@
      ============================================================ */
   #scrollytelling {
     position: relative;
-    height: 460vh;          /* 350vh cinematic + 110vh hold tail on the final composition */
+    height: 500vh;          /* scene + soft eased deceleration at the end */
     width: 100%;
     background: #EDECE7;
   }
   /* Mobile / tablet portrait: shorter cinematic so it's not a marathon to scroll */
   @media (max-width: 900px) {
-    #scrollytelling { height: 310vh; }  /* 240vh cinematic + 70vh hold tail */
+    #scrollytelling { height: 340vh; }  /* shorter on mobile */
   }
   #pinned {
     position: sticky;
@@ -1234,17 +1234,23 @@ import * as THREE from 'three';
   // (Webflow page) drive the camera.
   const isEmbedded = window.parent !== window;
 
-  // Trailing scroll distance during which progress stays clamped at 1.0
-  // so the final logo composition lingers naturally before the sticky
-  // scene releases. Smaller on mobile where the whole scroll is shorter.
-  const HOLD_TAIL_VH = window.innerWidth <= 900 ? 70 : 110;
+  // Natural decel on the final ~30% of scroll. The scene reaches its
+  // final composition quickly, then visibly slows so the logo lingers
+  // without the hard "stuck" feel of a hold-tail clamp. easeOutCubic
+  // pushes most of the visual change into the first half of the tail
+  // and asymptotes near 1.0, so the user can keep scrolling and the
+  // section releases without ever feeling locked.
+  function easeTail(linear) {
+    if (linear <= 0.7) return linear;
+    const t = (linear - 0.7) / 0.3;
+    return 0.7 + (1 - Math.pow(1 - t, 3)) * 0.3;
+  }
 
   function updateScrollProgress() {
     const total = scrollContainer.offsetHeight - window.innerHeight;
     if (total <= 0) { targetProgress = 0; return; }
-    const holdPx = (HOLD_TAIL_VH * window.innerHeight) / 100;
-    const usable = Math.max(1, total - holdPx);
-    targetProgress = Math.max(0, Math.min(1, window.scrollY / usable));
+    const linear = Math.max(0, Math.min(1, window.scrollY / total));
+    targetProgress = easeTail(linear);
   }
 
   if (isEmbedded) {

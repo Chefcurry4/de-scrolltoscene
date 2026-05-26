@@ -1416,6 +1416,14 @@ import * as THREE from 'three';
   }
 
   if (isEmbedded) {
+    // Loud version marker so we can confirm the iframe is running the
+    // current build (not a cached old one). Visible both in this iframe's
+    // console AND echoed up to the parent so it shows in the Webflow
+    // page console without needing to switch frame context.
+    const SCENE_BUILD = 'embedded-wheel-passthrough-v3';
+    console.log('[scene]', SCENE_BUILD, 'loaded at', new Date().toISOString());
+    try { window.parent.postMessage({ type: 'sceneVersion', build: SCENE_BUILD }, '*'); } catch (e) {}
+
     // Listen for parent scroll progress. Expected message shape:
     //   { type: 'scrollProgress', progress: 0..1 }
     window.addEventListener('message', (event) => {
@@ -1428,19 +1436,23 @@ import * as THREE from 'three';
     const hintEl = document.getElementById('scrollHint');
     if (hintEl) hintEl.style.display = 'none';
 
-    // CRITICAL when embedded in a parent page (Webflow code embed): the
-    // 700vh #scrollytelling container would otherwise capture wheel/touch
-    // events because the iframe has its own scrollable content. The user
-    // wheels over the iframe -> browser scrolls iframe INTERNALLY ->
-    // wheel never reaches the Webflow page -> nothing visibly moves.
-    // Collapse the internal scroll context to 100vh and lock body
-    // overflow so all wheel/touch events bubble straight up to the
-    // parent page where the cinematic driver lives.
+    // CRITICAL when embedded: collapse all internal scroll capacity so
+    // wheel/touch events fall through to the parent Webflow page where
+    // the cinematic driver lives. Also explicitly reset overscroll
+    // behavior to "auto" (the CSS sets it to "contain" which would
+    // block scroll-chaining out of the iframe), and add a no-op wheel
+    // listener that does NOT preventDefault — guarantees the browser
+    // can route the wheel up to the parent regardless of how the CSS
+    // overflow heuristics shake out across browsers.
     const sc = document.getElementById('scrollytelling');
     if (sc) sc.style.height = '100vh';
     document.documentElement.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
+    document.documentElement.style.overscrollBehavior = 'auto';
     document.body.style.overscrollBehavior = 'auto';
+    document.body.style.overscrollBehaviorY = 'auto';
+    window.addEventListener('wheel',     () => {}, { passive: true });
+    window.addEventListener('touchmove', () => {}, { passive: true });
 
     // Signal to parent we're ready
     try {

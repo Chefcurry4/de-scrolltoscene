@@ -1518,17 +1518,22 @@ import * as THREE from 'three';
     matNNEdgeShared.opacity  = sensorFade * 0.75;
     matNNPulseShared.opacity = sensorFade * 0.95;
 
-    // Dim overlay starts fading in after 78%. Combined with the cream
-    // text-shadow / drop-shadow halos on the typed line and logo, this
-    // gives a soft "spotlight of clarity" effect: the scene shows through
-    // around the edges, but the hero glyphs stay perfectly legible.
-    const dimP = Math.max(0, (p - 0.78) / 0.22);
+    // The sensor moment owns 0.72–0.88 (camera close-up + sensorFocusFade).
+    // The dim / typing / logo overlays all hold off until after it ends, so
+    // the sensor beat plays without any text fighting for attention and the
+    // "Unlock the power…" line only arrives once the camera has pulled away.
+    //
+    // Dim overlay starts fading in after the sensor moment. Combined with
+    // the cream text-shadow / drop-shadow halos on the typed line and logo,
+    // this gives a soft "spotlight of clarity" effect: the scene shows
+    // through around the edges, but the hero glyphs stay perfectly legible.
+    const dimP = Math.max(0, (p - 0.86) / 0.14);
     dim.style.opacity = (dimP * 0.45).toFixed(3);
 
-    // Typing container fades in 0.80 → 0.84
-    const typingFadeIn = Math.max(0, Math.min(1, (p - 0.80) / 0.04));
-    // Logo fades in 0.92 → 1.0 and the typing cross-fades out in the same window
-    const logoP        = Math.max(0, Math.min(1, (p - 0.92) / 0.08));
+    // Typing container fades in 0.88 → 0.92 (right after sensor moment).
+    const typingFadeIn = Math.max(0, Math.min(1, (p - 0.88) / 0.04));
+    // Logo fades in 0.94 → 1.0, settling on top of the typed line.
+    const logoP        = Math.max(0, Math.min(1, (p - 0.94) / 0.06));
 
     // Text stays put once revealed — logo simply joins it above.
     typing.style.opacity = typingFadeIn.toFixed(3);
@@ -1539,7 +1544,7 @@ import * as THREE from 'three';
     // scrolls back out of the zone so the effect plays fresh on re-entry.
     if (typingFadeIn > 0.5) {
       startTyping();
-    } else if (p < 0.78) {
+    } else if (p < 0.87) {
       resetTyping();
     }
   }

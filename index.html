@@ -26,17 +26,20 @@
     /* vh first for older browsers, then svh — the stable small-viewport
        unit that DOES NOT change when mobile browser chrome shows/hides.
        Using vh alone causes the section to resize mid-scroll on iOS,
-       producing the "earthquake" up/down jitter. */
-    height: 500vh;
-    height: 500svh;
+       producing the "earthquake" up/down jitter.
+       Bumped from 500 → 700 for a longer, less rushed cinematic. The
+       easeStart() curve on top of this dedicates the first chunk of
+       that extra runway to a gentle "settle in" at the top of the scene. */
+    height: 700vh;
+    height: 700svh;
     width: 100%;
     background: #EDECE7;
   }
   /* Mobile / tablet portrait: shorter cinematic so it's not a marathon to scroll */
   @media (max-width: 900px) {
     #scrollytelling {
-      height: 340vh;
-      height: 340svh;
+      height: 460vh;
+      height: 460svh;
     }
   }
   #pinned {
@@ -463,8 +466,14 @@ import * as THREE from 'three';
     // Grain plants — fewer on smaller devices
     fieldGrainDensity: isPhone ? 1.5 : (isTablet ? 2 : 3),
 
-    // Scroll smoothing — lower = more "filmic" lag, higher = snappier
-    scrollDamping: 0.13,
+    // Scroll smoothing — exponential decay rate (per second). Lower =
+    // more "filmic" lag, higher = snappier. Applied as
+    //   alpha = 1 - exp(-rate * dt)
+    // so the response is identical on 60Hz, 120Hz, or stuttering
+    // displays (vs the old per-frame coefficient which converged at
+    // different speeds depending on refresh rate, the main cause of
+    // the "feels laggy sometimes" jitter).
+    scrollDampingRate: 9.0,
   };
 
   // ============================================================
@@ -1375,6 +1384,18 @@ import * as THREE from 'three';
   // (Webflow page) drive the camera.
   const isEmbedded = window.parent !== window;
 
+  // Gentle ease-in on the first ~30% of scroll. The camera barely
+  // moves at first, then accelerates into the identity middle. This
+  // is the "settle in" you feel at the top of the scene — the user
+  // can land in the section and start scrolling without the camera
+  // immediately yanking forward. Quadratic ease-in: f(0)=0, f(0.30)=0.30,
+  // slope is 0 at start, 2 at the join (slight kink absorbed by damping).
+  function easeStart(linear) {
+    if (linear >= 0.30) return linear;
+    const t = linear / 0.30;
+    return 0.30 * t * t;
+  }
+
   // Natural decel on the final ~30% of scroll. The scene reaches its
   // final composition quickly, then visibly slows so the logo lingers
   // without the hard "stuck" feel of a hold-tail clamp. easeOutCubic
@@ -1391,7 +1412,7 @@ import * as THREE from 'three';
     const total = scrollContainer.offsetHeight - window.innerHeight;
     if (total <= 0) { targetProgress = 0; return; }
     const linear = Math.max(0, Math.min(1, window.scrollY / total));
-    targetProgress = easeTail(linear);
+    targetProgress = easeTail(easeStart(linear));
   }
 
   if (isEmbedded) {
@@ -1732,13 +1753,26 @@ import * as THREE from 'three';
   const clock = new THREE.Clock();
   let running = true;
   let frameId;
+  let lastTickT = 0;
 
   function tick() {
     if (!running) return;
     const t = clock.getElapsedTime();
 
-    // Damped scroll
-    smoothProgress += (targetProgress - smoothProgress) * CONFIG.scrollDamping;
+    // Frame-time-aware damping. The old code did
+    //   smoothProgress += diff * 0.13
+    // every rAF — that converges at different speeds on 60Hz vs
+    // 120Hz vs a stuttering frame, which is what made the camera
+    // feel "snappy on some monitors / laggy on others" and produced
+    // visible catch-up jumps after a dropped frame. By converting to
+    //   alpha = 1 - exp(-rate * dt)
+    // the response is identical at any refresh rate, and a dropped
+    // frame simply makes the next step proportionally larger and
+    // smooth instead of stalling and then snapping.
+    const dt = Math.min(0.05, t - lastTickT);  // clamp huge jumps (tab back-foreground)
+    lastTickT = t;
+    const alpha = 1 - Math.exp(-CONFIG.scrollDampingRate * dt);
+    smoothProgress += (targetProgress - smoothProgress) * alpha;
 
     // Panel tracking — visibly sweep through the day across the
     // cinematic, with a tighter "live tracking" gesture during the

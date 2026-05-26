@@ -1427,6 +1427,21 @@ import * as THREE from 'three';
     // Hide the internal scroll hint when parent-controlled
     const hintEl = document.getElementById('scrollHint');
     if (hintEl) hintEl.style.display = 'none';
+
+    // CRITICAL when embedded in a parent page (Webflow code embed): the
+    // 700vh #scrollytelling container would otherwise capture wheel/touch
+    // events because the iframe has its own scrollable content. The user
+    // wheels over the iframe -> browser scrolls iframe INTERNALLY ->
+    // wheel never reaches the Webflow page -> nothing visibly moves.
+    // Collapse the internal scroll context to 100vh and lock body
+    // overflow so all wheel/touch events bubble straight up to the
+    // parent page where the cinematic driver lives.
+    const sc = document.getElementById('scrollytelling');
+    if (sc) sc.style.height = '100vh';
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'auto';
+
     // Signal to parent we're ready
     try {
       window.parent.postMessage({ type: 'sceneReady' }, '*');

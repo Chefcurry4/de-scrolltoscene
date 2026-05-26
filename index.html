@@ -189,6 +189,66 @@
     opacity: 0;
     pointer-events: none;
   }
+
+  /* ============================================================
+     Narrative stations — left-aligned editorial overlays that
+     fade in/out tied to specific camera beats. Same brand palette
+     and cream halo treatment as .typing-text + .logo-reveal svg
+     for legibility against the live 3D scene.
+     ============================================================ */
+  .station {
+    position: absolute;
+    inset: 0;
+    z-index: 9;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-start;
+    pointer-events: none;
+    opacity: 0;
+    padding: 0 0 clamp(56px, 10vh, 120px) clamp(24px, 5vw, 88px);
+  }
+  .station-inner {
+    max-width: min(46vw, 560px);
+  }
+  .station-heading {
+    font-family: 'Manrope', system-ui, sans-serif;
+    font-weight: 800;
+    font-style: normal;
+    font-size: clamp(2rem, 4.4vw, 4rem);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    color: #14443A;
+    margin: 0 0 0.55em 0;
+    text-shadow:
+      0 0 24px rgba(237, 236, 231, 0.95),
+      0 0 48px rgba(237, 236, 231, 0.75),
+      0 0 80px rgba(237, 236, 231, 0.50);
+  }
+  .station-heading em {
+    font-style: italic;
+    font-weight: 800;
+    color: #8AE932;
+  }
+  .station-body {
+    font-family: 'Manrope', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: clamp(1rem, 1.4vw, 1.25rem);
+    line-height: 1.4;
+    color: #14443A;
+    max-width: 30em;
+    margin: 0;
+    text-shadow:
+      0 0 18px rgba(237, 236, 231, 0.90),
+      0 0 36px rgba(237, 236, 231, 0.60);
+  }
+  @media (max-width: 720px) {
+    .station {
+      align-items: flex-start;
+      padding: clamp(64px, 18vh, 140px) clamp(20px, 6vw, 36px) 0;
+    }
+    .station-inner { max-width: 90vw; }
+    .station-heading { font-size: clamp(1.8rem, 8vw, 2.6rem); }
+  }
 </style>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -213,6 +273,32 @@
 
     <!-- Dim overlay for final reveal -->
     <div class="scene-dim" id="sceneDim"></div>
+
+    <!-- Narrative stations — fade in/out tied to camera beats -->
+    <div class="station" data-station="1">
+      <div class="station-inner">
+        <h2 class="station-heading">We engineer agrivoltaic sites <em>end to end</em>.</h2>
+        <p class="station-body">Layout, tilt, row spacing, crop selection. Designed as one system, bankable from the first feasibility study.</p>
+      </div>
+    </div>
+    <div class="station" data-station="2">
+      <div class="station-inner">
+        <h2 class="station-heading">Solar panels reshape <em>how crops grow</em>.</h2>
+        <p class="station-body">Light, water, temperature. We don't accept the new microclimate, we engineer it into yield.</p>
+      </div>
+    </div>
+    <div class="station" data-station="4">
+      <div class="station-inner">
+        <h2 class="station-heading">More yield. More solar. <em>Better land</em>.</h2>
+        <p class="station-body">Every hectare working twice. For developers, for investors, for the climate.</p>
+      </div>
+    </div>
+    <div class="station" data-station="3">
+      <div class="station-inner">
+        <h2 class="station-heading">Live data on every field, <em>every season</em>.</h2>
+        <p class="station-body">A sensor network feeding the platform that developers and banks underwrite on. 95% yield prediction accuracy.</p>
+      </div>
+    </div>
 
     <!-- Typing reveal (precedes the logo) -->
     <div class="typing-reveal" id="typingReveal">
@@ -1429,6 +1515,12 @@ import * as THREE from 'three';
   const typing       = document.getElementById('typingReveal');
   const typedPrefix  = document.getElementById('typedPrefix');
   const typedAccent  = document.getElementById('typedAccent');
+  const stationEls = {
+    1: document.querySelector('.station[data-station="1"]'),
+    2: document.querySelector('.station[data-station="2"]'),
+    3: document.querySelector('.station[data-station="3"]'),
+    4: document.querySelector('.station[data-station="4"]'),
+  };
 
   // Time-based typewriter, triggered by scroll entering the typing zone.
   // The line is split so the accent word can be tinted brand light-green
@@ -1517,6 +1609,27 @@ import * as THREE from 'three';
     const sensorFade = sensorFocusFade(p);
     matNNEdgeShared.opacity  = sensorFade * 0.75;
     matNNPulseShared.opacity = sensorFade * 0.95;
+
+    // Narrative stations — each lives in a small progress window and is
+    // invisible outside it. Same brand palette + cream halo as the typing
+    // line, just left-aligned editorial copy mapped to camera beats:
+    //   #1 overhead/descent · #2 crop side view · #4 plant close-up · #3 sensor
+    const stationRamps = [
+      { id: 1, in: 0.04, fullIn: 0.08, fullOut: 0.18, out: 0.22 },
+      { id: 2, in: 0.42, fullIn: 0.45, fullOut: 0.54, out: 0.57 },
+      { id: 4, in: 0.58, fullIn: 0.61, fullOut: 0.68, out: 0.71 },
+      { id: 3, in: 0.74, fullIn: 0.77, fullOut: 0.84, out: 0.87 },
+    ];
+    for (const s of stationRamps) {
+      let o = 0;
+      if (p >= s.in && p <= s.out) {
+        if      (p < s.fullIn)  o = (p - s.in) / (s.fullIn - s.in);
+        else if (p > s.fullOut) o = 1 - (p - s.fullOut) / (s.out - s.fullOut);
+        else                    o = 1;
+      }
+      const el = stationEls[s.id];
+      if (el) el.style.opacity = o.toFixed(3);
+    }
 
     // The sensor moment owns 0.72–0.88 (camera close-up + sensorFocusFade).
     // The dim / typing / logo overlays all hold off until after it ends, so

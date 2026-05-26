@@ -1796,7 +1796,19 @@ import * as THREE from 'three';
     // the response is identical at any refresh rate, and a dropped
     // frame simply makes the next step proportionally larger and
     // smooth instead of stalling and then snapping.
-    const dt = Math.min(0.05, t - lastTickT);  // clamp huge jumps (tab back-foreground)
+    // Detect rAF pause. When the iframe scrolls offscreen on the parent
+    // (user past the cinematic section into CTA/footer), cross-origin
+    // iframes get rAF-throttled to ~1 Hz by Chromium-based browsers.
+    // The parent keeps posting scrollProgress messages so targetProgress
+    // stays current, but smoothProgress stops advancing — it carries the
+    // stale value (typically ~1.0) from the moment we got throttled. On
+    // resume, the exp damping would need ~5 frames to lerp back to where
+    // the user actually is, which reads as a visible "lag" when scrolling
+    // back up. Snap on resume so the camera tracks the reversed scroll
+    // direction instantly.
+    const rawDt = t - lastTickT;
+    if (rawDt > 0.25) smoothProgress = targetProgress;
+    const dt = Math.min(0.05, rawDt);            // clamp huge jumps (tab back-foreground)
     lastTickT = t;
     const alpha = 1 - Math.exp(-CONFIG.scrollDampingRate * dt);
     smoothProgress += (targetProgress - smoothProgress) * alpha;

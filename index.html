@@ -306,7 +306,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;1,300&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&family=Inter:wght@400&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
 
 </head>
 <body>
@@ -391,6 +391,7 @@
 
 <!-- ============ THREE.JS ============ -->
 <link rel="modulepreload" href="https://unpkg.com/three@0.160.0/build/three.module.js" crossorigin>
+<link rel="modulepreload" href="https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js" crossorigin>
 <script type="importmap">
 {
   "imports": {
@@ -402,6 +403,7 @@
 
 <script type="module">
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 (function initCinematicScene() {
   // ============================================================
@@ -448,8 +450,8 @@ import * as THREE from 'three';
     trackingSpeed: 0.10,
 
     // Crops — slightly thinned on mobile to keep memory + draw calls in check
-    cropStripCount: isPhone ? 7 : 9,
-    cropPatchesPerStrip: isPhone ? 16 : (isTablet ? 20 : 24),
+    cropStripCount: isPhone ? 5 : 7,
+    cropPatchesPerStrip: isPhone ? 12 : (isTablet ? 14 : 18),
 
     // Performance — adaptive
     shadowsEnabled: !isPhone,
@@ -464,7 +466,7 @@ import * as THREE from 'three';
     groundRipples: !isPhone,     // 18 transparent meshes → noticeable on weak GPUs
 
     // Grain plants — fewer on smaller devices
-    fieldGrainDensity: isPhone ? 1.5 : (isTablet ? 2 : 3),
+    fieldGrainDensity: isPhone ? 0.75 : (isTablet ? 1 : 1.5),
 
     // Scroll smoothing — exponential decay rate (per second). Lower =
     // more "filmic" lag, higher = snappier. Applied as
@@ -623,61 +625,40 @@ import * as THREE from 'three';
   const matGrainSpike = new THREE.MeshStandardMaterial({ color: '#D4A82A', roughness: 0.78, metalness: 0, flatShading: true });
 
   // ============================================================
-  // TRACKER FACTORY
+  // TRACKER GEOMETRY TEMPLATES (for InstancedMesh)
+  //
+  // Instead of 50 Groups × 8 meshes = 400 draw calls, we use
+  // 4 InstancedMeshes (poles, panels, tubes, cell lines) = 4
+  // draw calls total. Instance matrices are updated in tick().
   // ============================================================
-  function createTracker() {
-    const group = new THREE.Group();
-    const POLE_H = 2.1;
+  const POLE_H = 2.1;
+  const PANEL_W = 2.35, PANEL_D = 0.06, PANEL_H = 1.18;
 
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.07, 0.07, POLE_H, 14),
-      matPole,
-    );
-    pole.position.y = POLE_H / 2;
-    pole.castShadow = true;
-    group.add(pole);
+  // Pole — geometry pre-translated so bottom sits at y=0
+  const _poleGeom = new THREE.CylinderGeometry(0.07, 0.07, POLE_H, 8);
+  _poleGeom.translate(0, POLE_H / 2, 0);
 
-    const pivot = new THREE.Group();
-    pivot.position.y = POLE_H + 0.05;
+  // Panel — centered at pivot origin
+  const _panelGeom = new THREE.BoxGeometry(PANEL_W, PANEL_D, PANEL_H);
 
-    const tube = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.045, 2.5, 12),
-      matFrame,
-    );
-    tube.rotation.z = Math.PI / 2;
-    tube.castShadow = true;
-    pivot.add(tube);
+  // Tube — rotation baked into vertices so instance matrix is simpler
+  const _tubeGeom = new THREE.CylinderGeometry(0.045, 0.045, 2.5, 8);
+  _tubeGeom.rotateZ(Math.PI / 2);
 
-    const PANEL_W = 2.35, PANEL_D = 0.06, PANEL_H = 1.18;
-    const panel = new THREE.Mesh(
-      new THREE.BoxGeometry(PANEL_W, PANEL_D, PANEL_H),
-      matPanel,
-    );
-    panel.castShadow = true;
-    panel.receiveShadow = true;
-    pivot.add(panel);
-
-    const lineY = PANEL_D / 2 + 0.002;
-    for (let i = 1; i < 6; i++) {
-      const x = -PANEL_W / 2 + (PANEL_W * i / 6);
-      const ln = new THREE.Mesh(
-        new THREE.BoxGeometry(0.012, 0.002, PANEL_H * 0.94),
-        matCellLine,
-      );
-      ln.position.set(x, lineY, 0);
-      pivot.add(ln);
-    }
-    const hline = new THREE.Mesh(
-      new THREE.BoxGeometry(PANEL_W * 0.94, 0.002, 0.012),
-      matCellLine,
-    );
-    hline.position.set(0, lineY, 0);
-    pivot.add(hline);
-
-    group.add(pivot);
-    group.userData.pivot = pivot;
-    return group;
+  // Cell lines — 5 vertical + 1 horizontal, merged into one template
+  const _lineY = PANEL_D / 2 + 0.002;
+  const _cellGeos = [];
+  for (let i = 1; i < 6; i++) {
+    const lx = -PANEL_W / 2 + (PANEL_W * i / 6);
+    const g = new THREE.BoxGeometry(0.012, 0.002, PANEL_H * 0.94);
+    g.translate(lx, _lineY, 0);
+    _cellGeos.push(g);
   }
+  const _hlGeo = new THREE.BoxGeometry(PANEL_W * 0.94, 0.002, 0.012);
+  _hlGeo.translate(0, _lineY, 0);
+  _cellGeos.push(_hlGeo);
+  const _cellLineGeom = mergeGeometries(_cellGeos);
+  for (const g of _cellGeos) g.dispose();
 
   // ============================================================
   // SENSOR BOX FACTORY
@@ -687,7 +668,7 @@ import * as THREE from 'three';
     const STAKE_H = 0.6;
 
     const stake = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.025, 0.025, STAKE_H, 8),
+      new THREE.CylinderGeometry(0.025, 0.025, STAKE_H, 6),
       matSensorStake,
     );
     stake.position.y = STAKE_H / 2;
@@ -705,7 +686,7 @@ import * as THREE from 'three';
     group.add(enc);
 
     const led = new THREE.Mesh(
-      new THREE.SphereGeometry(0.024, 12, 12),
+      new THREE.SphereGeometry(0.024, 8, 8),
       matSensorLED.clone(),
     );
     led.position.set(ENC_W / 2 - 0.08, STAKE_H + ENC_H / 2 + 0.02, ENC_D / 2 + 0.001);
@@ -730,7 +711,7 @@ import * as THREE from 'three';
     group.add(ant);
 
     const antTip = new THREE.Mesh(
-      new THREE.SphereGeometry(0.014, 10, 10),
+      new THREE.SphereGeometry(0.014, 8, 8),
       matSensorLED.clone(),
     );
     antTip.position.set(-ENC_W / 2 + 0.04, STAKE_H + ENC_H + ANT_H, 0);
@@ -827,34 +808,60 @@ import * as THREE from 'three';
   }
 
   // ============================================================
-  // PLACE TRACKERS (wider field for bird's-eye intro)
+  // PLACE TRACKERS — data arrays + 4 InstancedMeshes
   // ============================================================
-  const trackers = [];
-  let heroTracker = null;
+  const TRACKER_COUNT = CONFIG.rows * CONFIG.cols;
+  const trackerPositions = [];      // { x, z } per tracker
+  const trackerTiltOffsets = [];
+  let heroTrackerIndex = -1;
+
   for (let r = 0; r < CONFIG.rows; r++) {
     for (let c = 0; c < CONFIG.cols; c++) {
-      const t = createTracker();
-      t.position.set(
-        (c - (CONFIG.cols - 1) / 2) * CONFIG.colSpacing,
-        0,
-        (r - (CONFIG.rows - 1) / 2) * CONFIG.rowSpacing,
-      );
-      // Tiny per-tracker tilt offset for variety
-      t.userData.tiltOffset = (Math.random() - 0.5) * 0.06;
-      // Hero panel = col 5, row 3 → world position (1.5, *, 6.2),
-      // sits adjacent to the hero grain trio (now at (2, 0, 3.1)).
-      // Picked as the subject of the panel-focus beat.
-      if (c === 5 && r === 3) {
-        t.userData.isHero = true;
-        heroTracker = t;
-      }
-      // Start invisible — the intro beat scales them up to 1 in a
-      // staggered ripple while the lime grid fades out.
-      t.scale.setScalar(0);
-      scene.add(t);
-      trackers.push(t);
+      trackerPositions.push({
+        x: (c - (CONFIG.cols - 1) / 2) * CONFIG.colSpacing,
+        z: (r - (CONFIG.rows - 1) / 2) * CONFIG.rowSpacing,
+      });
+      trackerTiltOffsets.push((Math.random() - 0.5) * 0.06);
+      if (c === 5 && r === 3) heroTrackerIndex = trackerPositions.length - 1;
     }
   }
+
+  const instancedPoles     = new THREE.InstancedMesh(_poleGeom,     matPole,     TRACKER_COUNT);
+  const instancedPanels    = new THREE.InstancedMesh(_panelGeom,    matPanel,    TRACKER_COUNT);
+  const instancedTubes     = new THREE.InstancedMesh(_tubeGeom,     matFrame,    TRACKER_COUNT);
+  const instancedCellLines = new THREE.InstancedMesh(_cellLineGeom, matCellLine, TRACKER_COUNT);
+
+  instancedPoles.castShadow = true;
+  instancedPanels.castShadow = true;
+  instancedPanels.receiveShadow = true;
+  instancedTubes.castShadow = true;
+
+  // Start invisible (intro animation scales them up)
+  const _zeroMat = new THREE.Matrix4().makeScale(0.001, 0.001, 0.001);
+  for (let i = 0; i < TRACKER_COUNT; i++) {
+    instancedPoles.setMatrixAt(i, _zeroMat);
+    instancedPanels.setMatrixAt(i, _zeroMat);
+    instancedTubes.setMatrixAt(i, _zeroMat);
+    instancedCellLines.setMatrixAt(i, _zeroMat);
+  }
+  scene.add(instancedPoles, instancedPanels, instancedTubes, instancedCellLines);
+
+  // InstancedMesh bounding spheres are computed from the template geometry
+  // alone — they don't account for instance transforms spread across the
+  // field. Disable frustum culling so the GPU always draws all instances.
+  instancedPoles.frustumCulled = false;
+  instancedPanels.frustumCulled = false;
+  instancedTubes.frustumCulled = false;
+  instancedCellLines.frustumCulled = false;
+
+  // Reusable matrix helpers for per-frame instance updates in tick()
+  const _iMat = new THREE.Matrix4();
+  const _iPos = new THREE.Vector3();
+  const _iScale = new THREE.Vector3();
+  const _pivotQuat = new THREE.Quaternion();
+  const _identityQuat = new THREE.Quaternion();
+  const _xAxis = new THREE.Vector3(1, 0, 0);
+  let trackerIntroComplete = false;
 
   // ============================================================
   // INTRO BLUEPRINT — vertical columns appear first (the "frame"),
@@ -919,23 +926,22 @@ import * as THREE from 'three';
   const heroAccentMat = new THREE.LineBasicMaterial({
     color: COLORS.lime, transparent: true, opacity: 0,
   });
-  let heroPanelEdges = null;
+  // Standalone pivot for the hero wireframe edge — positioned each
+  // frame in tick() to match the hero tracker's InstancedMesh transform.
+  const heroEdgesPivot = new THREE.Group();
   let heroPitchLine = null;
-  if (heroTracker) {
-    // Match the panel BoxGeometry size used inside createTracker (2.35 × 0.06 × 1.18)
-    heroPanelEdges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(2.35, 0.06, 1.18)),
+  if (heroTrackerIndex >= 0) {
+    heroEdgesPivot.add(new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(PANEL_W, PANEL_D, PANEL_H)),
       heroAccentMat,
-    );
-    // Parent to the pivot so the outline inherits the live tracker tilt
-    heroTracker.userData.pivot.add(heroPanelEdges);
+    ));
+    scene.add(heroEdgesPivot);
 
-    // Row-pitch indicator: ground-level line from the hero pole base to
-    // the next-row pole base. World-space line, not parented to pivot.
+    const hp = trackerPositions[heroTrackerIndex];
     heroPitchLine = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(heroTracker.position.x, 0.02, heroTracker.position.z),
-        new THREE.Vector3(heroTracker.position.x, 0.02, heroTracker.position.z + CONFIG.rowSpacing),
+        new THREE.Vector3(hp.x, 0.02, hp.z),
+        new THREE.Vector3(hp.x, 0.02, hp.z + CONFIG.rowSpacing),
       ]),
       heroAccentMat,
     );
@@ -975,6 +981,9 @@ import * as THREE from 'three';
   const CROP_MATS = [matCropLime, matCropLimeDark, matCropLimeMid];
   const stripStep = CONFIG.rowSpacing / 2;
 
+  // Merge all crop patches into one BufferGeometry per material
+  // instead of thousands of individual meshes (~1,080 → 3 draw calls)
+  const cropGeosByMat = new Map(CROP_MATS.map(m => [m, []]));
   for (let s = 0; s < CONFIG.cropStripCount; s++) {
     const z = (s - (CONFIG.cropStripCount - 1) / 2) * stripStep;
     for (let i = 0; i < CONFIG.cropPatchesPerStrip; i++) {
@@ -982,13 +991,26 @@ import * as THREE from 'three';
               + (Math.random() - 0.5) * 0.45;
       const mat = CROP_MATS[(s * 7 + i * 3) % CROP_MATS.length];
       const patch = createCropPatch(mat);
-      patch.position.set(
-        x,
-        0,
-        z + (Math.random() - 0.5) * 0.9,
-      );
-      scene.add(patch);
+      patch.position.set(x, 0, z + (Math.random() - 0.5) * 0.9);
+      patch.updateMatrixWorld(true);
+      patch.traverse(child => {
+        if (!child.isMesh) return;
+        const g = child.geometry.clone();
+        g.applyMatrix4(child.matrixWorld);
+        cropGeosByMat.get(mat).push(g);
+      });
     }
+  }
+  for (const mat of CROP_MATS) {
+    const geos = cropGeosByMat.get(mat);
+    if (geos.length === 0) continue;
+    const merged = mergeGeometries(geos);
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    // Free individual geometries
+    for (const g of geos) g.dispose();
   }
 
   // ============================================================
@@ -1057,9 +1079,13 @@ import * as THREE from 'three';
   // does); they're static and already full-grown, giving the
   // bird's-eye view a sense of an active cultivated field.
   // ============================================================
+  // Merge all field grain plants into single geometries per material
+  // instead of hundreds of individual Groups (~1,890 → 4 draw calls)
   const FIELD_GRAIN_DENSITY = CONFIG.fieldGrainDensity;
   const fieldGrainStrips = CONFIG.cropStripCount;
   const fieldGrainStripStep = CONFIG.rowSpacing / 2;
+  const grainMats = [matGrainStem, matGrainLeaf, matGrainHead, matGrainSpike];
+  const fieldGrainGeos = new Map(grainMats.map(m => [m, []]));
 
   for (let s = 0; s < fieldGrainStrips; s++) {
     const z = (s - (fieldGrainStrips - 1) / 2) * fieldGrainStripStep;
@@ -1068,44 +1094,51 @@ import * as THREE from 'three';
       const x = xBase + (Math.random() - 0.5) * (CONFIG.colSpacing * 0.6);
       const zJitter = z + (Math.random() - 0.5) * 1.0;
 
-      // Skip grain plants that would land on the close-up trio's spot
-      // (radius 1.5 around x=2, z=3.1, the new alley-center position)
       const dx = x - 2;
       const dz = zJitter - 3.1;
       if (dx * dx + dz * dz < 1.5 * 1.5) continue;
 
-      // Skip if very close to a tracker pole
       let tooCloseToPole = false;
-      for (const tr of trackers) {
-        const pdx = x - tr.position.x;
-        const pdz = zJitter - tr.position.z;
-        if (pdx * pdx + pdz * pdz < 0.25 * 0.25) {
-          tooCloseToPole = true;
-          break;
-        }
+      for (const tp of trackerPositions) {
+        const pdx = x - tp.x;
+        const pdz = zJitter - tp.z;
+        if (pdx * pdx + pdz * pdz < 0.25 * 0.25) { tooCloseToPole = true; break; }
       }
       if (tooCloseToPole) continue;
 
-      // Skip if close to a sensor box
       let tooCloseToSensor = false;
       for (const sb of sensorBoxes) {
         const sdx = x - sb.position.x;
         const sdz = zJitter - sb.position.z;
-        if (sdx * sdx + sdz * sdz < 0.5 * 0.5) {
-          tooCloseToSensor = true;
-          break;
-        }
+        if (sdx * sdx + sdz * sdz < 0.5 * 0.5) { tooCloseToSensor = true; break; }
       }
       if (tooCloseToSensor) continue;
 
       const plant = createGrainPlant();
       plant.position.set(x, 0, zJitter);
       plant.rotation.y = Math.random() * Math.PI * 2;
-      // Subtle scale variation — most around 0.65, some smaller for variety
-      const scale = 0.55 + Math.random() * 0.25;
-      plant.scale.setScalar(scale);
-      scene.add(plant);
+      plant.scale.setScalar(0.55 + Math.random() * 0.25);
+      plant.updateMatrixWorld(true);
+      plant.traverse(child => {
+        if (!child.isMesh) return;
+        const bucket = fieldGrainGeos.get(child.material);
+        if (bucket) {
+          const g = child.geometry.clone();
+          g.applyMatrix4(child.matrixWorld);
+          bucket.push(g);
+        }
+      });
     }
+  }
+  for (const mat of grainMats) {
+    const geos = fieldGrainGeos.get(mat);
+    if (geos.length === 0) continue;
+    const merged = mergeGeometries(geos);
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    for (const g of geos) g.dispose();
   }
 
   // ============================================================
@@ -1131,12 +1164,12 @@ import * as THREE from 'three';
     color: COLORS.lime, emissive: COLORS.lime, emissiveIntensity: 0.7,
     roughness: 0.3, metalness: 0,
   });
-  trackers.forEach((tr, idx) => {
+  trackerPositions.forEach((tp, idx) => {
     const led = new THREE.Mesh(
-      new THREE.SphereGeometry(0.045, 8, 8),
+      new THREE.SphereGeometry(0.045, 6, 6),
       matTrackerLED.clone(),
     );
-    led.position.set(tr.position.x + 0.10, 0.22, tr.position.z);
+    led.position.set(tp.x + 0.10, 0.22, tp.z);
     led.userData.phase = idx * 0.37;
     scene.add(led);
     dataLayerObjects.push({ kind: 'trackerLED', mesh: led });
@@ -1177,18 +1210,18 @@ import * as THREE from 'three';
     // (kind: 'trail' with source: 'sensor' so they don't fire until the user
     //  reaches the sensor beat).
     sensorBoxes.forEach((sb) => {
-      const particles = createDataTrail(sb.position.x, sb.position.z, 7.5, 9);
+      const particles = createDataTrail(sb.position.x, sb.position.z, 7.5, 7);
       dataLayerObjects.push({ kind: 'trail', particles, speed: 0.18, source: 'sensor' });
     });
 
     // Tracker trails — always-on telemetry from a subset of panels
-    trackers.forEach((tr, idx) => {
+    trackerPositions.forEach((tp, idx) => {
       if (idx % 4 !== 0) return;
       const particles = createDataTrail(
-        tr.position.x + 0.30,  // slight offset from pole
-        tr.position.z + 0.10,
+        tp.x + 0.30,
+        tp.z + 0.10,
         6.0,
-        7,
+        5,
       );
       dataLayerObjects.push({ kind: 'trail', particles, speed: 0.15, source: 'tracker' });
     });
@@ -1249,7 +1282,7 @@ import * as THREE from 'three';
 
   if (CONFIG.dataTrails) {
     // ---- Light motes: drift down inside the cone ----
-    const MOTE_COUNT = 30;
+    const MOTE_COUNT = 20;
     const moteParticles = [];
     const matLightMote = new THREE.MeshBasicMaterial({
       color: '#FFF4D9', transparent: true, opacity: 0,
@@ -1274,7 +1307,7 @@ import * as THREE from 'three';
     dataLayerObjects.push({ kind: 'lightMote', particles: moteParticles });
 
     // ---- Water droplets: fall near plant bases, fade on impact ----
-    const DROP_COUNT = 10;
+    const DROP_COUNT = 7;
     const dropParticles = [];
     const matWaterDrop = new THREE.MeshStandardMaterial({
       color: '#7FB8D6',
@@ -1337,8 +1370,8 @@ import * as THREE from 'three';
   ];
 
   // Nodes — stages 0..3 small, stage 4 (endpoint) noticeably larger
-  const nnNodeGeomSmall = new THREE.SphereGeometry(0.045, 12, 12);
-  const nnNodeGeomLarge = new THREE.SphereGeometry(0.075, 14, 14);
+  const nnNodeGeomSmall = new THREE.SphereGeometry(0.045, 8, 8);
+  const nnNodeGeomLarge = new THREE.SphereGeometry(0.075, 10, 10);
   nnStages.forEach((pos, i) => {
     const isEndpoint = i === nnStages.length - 1;
     const m = new THREE.Mesh(
@@ -1843,47 +1876,78 @@ import * as THREE from 'three';
     const closeUpGesture = Math.sin(t * 0.85) * 0.075 * closeUpStrength;
 
     // ============================================================
-    // INTRO — staggered emergence of the panel grid.
-    // Only active during the first ~16% of the cinematic; outside
-    // the window we early-return after locking scale at 1.
+    // TRACKER INSTANCE MATRIX UPDATE — intro animation + tilt
+    //
+    // Replaces the old per-Group scale/position/rotation updates
+    // with per-instance matrix writes. Poles only update during
+    // the intro phase (static after); pivot meshes every frame.
     // ============================================================
-    if (smoothProgress < 0.16) {
-      // Row-by-row install: for each row, its blueprint (horizontal line +
-      // 10 footprints) draws first; THEN the 10 panels in that row drop in
-      // from y=8 onto their footprints with overshoot easing. Within a row
-      // panels stagger gently left → right. Same ROW_INTERVAL and timing
-      // used by the grid opacity ramp in applyOverlaysForProgress.
-      const introT = smoothProgress / 0.16;
-      const ROW_INTERVAL = 0.18;
-      const ROW_FADE_IN  = 0.04;
-      const PANEL_FALL   = 0.10;
-      const COL_SLIDE    = 0.04;
-      for (let i = 0; i < trackers.length; i++) {
+    const introPhase = smoothProgress < 0.16;
+    const baseTilt = scrollTilt + wobble + closeUpGesture;
+    const heroFocusStrength = Math.max(0, 1 - Math.abs(p - 0.30) / 0.10);
+    const heroGesture = Math.sin(t * 1.1) * 0.18 * heroFocusStrength;
+    const updatePoles = introPhase || !trackerIntroComplete;
+
+    // Intro timing constants (same as applyOverlaysForProgress)
+    const introT       = introPhase ? smoothProgress / 0.16 : 1;
+    const ROW_INTERVAL = 0.18;
+    const ROW_FADE_IN  = 0.04;
+    const PANEL_FALL   = 0.10;
+    const COL_SLIDE    = 0.04;
+    const PIVOT_Y      = POLE_H + 0.05;
+
+    for (let i = 0; i < TRACKER_COUNT; i++) {
+      const tp = trackerPositions[i];
+      let s = 1, yOff = 0;
+
+      if (introPhase) {
         const r = Math.floor(i / CONFIG.cols);
         const c = i % CONFIG.cols;
-        const rowStart = r * ROW_INTERVAL + ROW_FADE_IN;       // panels begin after the row grid is drawn
-        const colOff   = (c / (CONFIG.cols - 1)) * COL_SLIDE;  // tiny left→right stagger inside the row
+        const rowStart = r * ROW_INTERVAL + ROW_FADE_IN;
+        const colOff   = (c / (CONFIG.cols - 1)) * COL_SLIDE;
         const localT   = Math.max(0, Math.min(1, (introT - rowStart - colOff) / PANEL_FALL));
-        const easedScale = easeOutBack(localT);
-        trackers[i].scale.setScalar(easedScale);
-        trackers[i].position.y = (1 - localT) * 8;
+        s    = easeOutBack(localT);
+        yOff = (1 - localT) * 8;
       }
-    } else if (trackers[0].position.y !== 0) {
-      for (const tr of trackers) {
-        tr.scale.setScalar(1);
-        tr.position.y = 0;
+
+      // Pole: position + scale only (no rotation)
+      if (updatePoles) {
+        _iMat.compose(
+          _iPos.set(tp.x, yOff, tp.z),
+          _identityQuat,
+          _iScale.set(s, s, s),
+        );
+        instancedPoles.setMatrixAt(i, _iMat);
+      }
+
+      // Pivot components: position + scale + tilt rotation
+      let trTilt = baseTilt + trackerTiltOffsets[i];
+      if (i === heroTrackerIndex) trTilt += heroGesture;
+
+      _pivotQuat.setFromAxisAngle(_xAxis, trTilt);
+      _iMat.compose(
+        _iPos.set(tp.x, yOff + PIVOT_Y * s, tp.z),
+        _pivotQuat,
+        _iScale.set(s, s, s),
+      );
+      instancedPanels.setMatrixAt(i, _iMat);
+      instancedTubes.setMatrixAt(i, _iMat);
+      instancedCellLines.setMatrixAt(i, _iMat);
+
+      // Sync hero accent edges to hero tracker's pivot
+      if (i === heroTrackerIndex) {
+        heroEdgesPivot.position.set(tp.x, yOff + PIVOT_Y * s, tp.z);
+        heroEdgesPivot.scale.setScalar(s);
+        heroEdgesPivot.rotation.x = trTilt;
       }
     }
 
-    const tilt = scrollTilt + wobble + closeUpGesture;
-    // Hero-panel extra gesture, centered on the panel-focus window (~0.30)
-    // so the live-tracking motion is unmistakable when the camera is on it.
-    const heroFocusStrength = Math.max(0, 1 - Math.abs(p - 0.30) / 0.10);
-    const heroGesture = Math.sin(t * 1.1) * 0.18 * heroFocusStrength;
-    for (const tr of trackers) {
-      let trTilt = tilt + tr.userData.tiltOffset;
-      if (tr.userData.isHero) trTilt += heroGesture;
-      tr.userData.pivot.rotation.x = trTilt;
+    instancedPanels.instanceMatrix.needsUpdate = true;
+    instancedTubes.instanceMatrix.needsUpdate = true;
+    instancedCellLines.instanceMatrix.needsUpdate = true;
+    if (updatePoles) {
+      instancedPoles.instanceMatrix.needsUpdate = true;
+      if (!introPhase) trackerIntroComplete = true;
     }
 
     // Sensor LEDs — quiet idle outside the sensor-focus window, full pulse

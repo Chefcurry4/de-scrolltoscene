@@ -390,20 +390,14 @@
 </div>
 
 <!-- ============ THREE.JS ============ -->
+<!-- Full URLs (no importmap) so this works when iframed into Webflow / any
+     embed context where a competing module load could invalidate the map. -->
 <link rel="modulepreload" href="https://unpkg.com/three@0.160.0/build/three.module.js" crossorigin>
 <link rel="modulepreload" href="https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js" crossorigin>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-  }
-}
-</script>
 
 <script type="module">
-import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+import { mergeGeometries } from 'https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js';
 
 (function initCinematicScene() {
   // ============================================================

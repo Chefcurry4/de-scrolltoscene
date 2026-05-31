@@ -137,11 +137,7 @@
     width: 100%;
     height: auto;
     display: block;
-    /* Matching cream halo around the logo strokes/fills — same trick as
-       the typed line, keeps the mark legible against the live 3D scene. */
-    filter:
-      drop-shadow(0 0 24px rgba(237, 236, 231, 0.90))
-      drop-shadow(0 0 48px rgba(237, 236, 231, 0.60));
+    /* No glow — the mark sits over the lightened (scene-dim) scene at the end. */
   }
   /* ============================================================
      Typing reveal — appears just before the logo, types out a line,
@@ -168,13 +164,8 @@
     line-height: 1.25;
     text-align: center;
     max-width: 92vw;
-    /* Cream halo around glyphs — the area immediately around the text
-       brightens up against the 3D scene, so the line stays crisp no
-       matter what's behind it. Several layers = softer falloff. */
-    text-shadow:
-      0 0 24px rgba(237, 236, 231, 0.95),
-      0 0 48px rgba(237, 236, 231, 0.75),
-      0 0 80px rgba(237, 236, 231, 0.50);
+    /* No glow — by the time this types out, the scene-dim overlay (45% cream)
+       has lightened the scene behind it, so the line reads clean and flat. */
   }
   .typing-text .typed { white-space: pre-wrap; }
   .typing-text .accent { color: #8AE932; }
@@ -271,11 +262,7 @@
     letter-spacing: -0.015em;
     color: #14443A;
     margin: 0 0 0.55em 0;
-    /* Subtle on the glass card: a tight cream lift + faint dark depth. Keeps
-       text crisp on clear glass and as a fallback mid-fade / no-blur engines. */
-    text-shadow:
-      0 0 10px rgba(245, 242, 232, 0.55),
-      0 1px 2px rgba(20, 68, 58, 0.10);
+    /* No glow — the glass card supplies the contrast, text reads clean and flat. */
   }
   .station-heading em {
     font-style: italic;
@@ -290,9 +277,7 @@
     color: #14443A;
     max-width: 30em;
     margin: 0;
-    text-shadow:
-      0 0 10px rgba(245, 242, 232, 0.55),
-      0 1px 2px rgba(20, 68, 58, 0.10);
+    /* No glow — legible on the glass card without it. */
   }
   /* Blur unsupported (older Firefox / some embedded webviews): fall back to a
      near-opaque cream card so the caption stays legible without glass. */
@@ -1830,10 +1815,10 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     // the sensor beat plays without any text fighting for attention and the
     // "Unlock the power…" line only arrives once the camera has pulled away.
     //
-    // Dim overlay starts fading in after the sensor moment. Combined with
-    // the cream text-shadow / drop-shadow halos on the typed line and logo,
-    // this gives a soft "spotlight of clarity" effect: the scene shows
-    // through around the edges, but the hero glyphs stay perfectly legible.
+    // Dim overlay starts fading in after the sensor moment, lightening the
+    // scene to 45% cream so the typed line and logo read clean and flat over
+    // it — no text halos needed (the captions get their contrast from the
+    // liquid-glass cards instead).
     const dimP = Math.max(0, (p - 0.86) / 0.14);
     dim.style.opacity = (dimP * 0.45).toFixed(3);
 

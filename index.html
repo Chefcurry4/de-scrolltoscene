@@ -220,12 +220,48 @@
     align-items: flex-end;
     justify-content: flex-start;
     pointer-events: none;
-    opacity: 0;
+    /* No opacity here any more — the fade is driven on .station-inner so the
+       card's backdrop-filter keeps sampling the live scene THROUGH the fade.
+       A parent at opacity<1 isolates its child's backdrop and would flatten
+       the blur to plain tint mid-transition. This wrapper paints nothing. */
     padding: 0 0 clamp(56px, 10vh, 120px) clamp(24px, 5vw, 88px);
   }
+  /* Clear liquid-glass card (iOS 26 lock-screen character): translucent cream
+     #F5F2E8, the 3D scene refracts through, bright specular top edge + rim. */
   .station-inner {
+    position: relative;
+    overflow: hidden;
+    opacity: 0;                          /* fade driver (JS sets this per scroll) */
+    width: fit-content;
     max-width: min(46vw, 560px);
+    padding: clamp(22px, 2.2vw, 40px) clamp(26px, 2.6vw, 48px);
+    border-radius: clamp(22px, 2.4vw, 30px);
+    background: rgba(245, 242, 232, 0.40);
+    -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(1.03);
+    backdrop-filter: blur(16px) saturate(180%) brightness(1.03);
+    border: 1px solid rgba(255, 255, 255, 0.40);
+    box-shadow:
+      0 16px 50px -12px rgba(20, 68, 58, 0.22),    /* ambient drop */
+      0 2px 8px rgba(20, 68, 58, 0.08),            /* contact */
+      inset 0 1px 0 rgba(255, 255, 255, 0.85),     /* specular top edge */
+      inset 0 0 0 1px rgba(255, 255, 255, 0.10),   /* rim light */
+      inset 0 -12px 24px -14px rgba(255, 255, 255, 0.12); /* inner glow */
   }
+  /* Specular sheen sweeping the top of the glass — clipped to the radius. */
+  .station-inner::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.32) 0%,
+      rgba(255, 255, 255, 0.08) 22%,
+      rgba(255, 255, 255, 0) 45%
+    );
+  }
+  /* Keep the text above the sheen layer. */
+  .station-heading, .station-body { position: relative; z-index: 1; }
   .station-heading {
     font-family: 'Manrope', system-ui, sans-serif;
     font-weight: 800;
@@ -235,10 +271,11 @@
     letter-spacing: -0.015em;
     color: #14443A;
     margin: 0 0 0.55em 0;
+    /* Subtle on the glass card: a tight cream lift + faint dark depth. Keeps
+       text crisp on clear glass and as a fallback mid-fade / no-blur engines. */
     text-shadow:
-      0 0 24px rgba(237, 236, 231, 0.95),
-      0 0 48px rgba(237, 236, 231, 0.75),
-      0 0 80px rgba(237, 236, 231, 0.50);
+      0 0 10px rgba(245, 242, 232, 0.55),
+      0 1px 2px rgba(20, 68, 58, 0.10);
   }
   .station-heading em {
     font-style: italic;
@@ -254,8 +291,13 @@
     max-width: 30em;
     margin: 0;
     text-shadow:
-      0 0 18px rgba(237, 236, 231, 0.90),
-      0 0 36px rgba(237, 236, 231, 0.60);
+      0 0 10px rgba(245, 242, 232, 0.55),
+      0 1px 2px rgba(20, 68, 58, 0.10);
+  }
+  /* Blur unsupported (older Firefox / some embedded webviews): fall back to a
+     near-opaque cream card so the caption stays legible without glass. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .station-inner { background: rgba(245, 242, 232, 0.88); }
   }
   /* Phone portrait — top-aligned, full width so the scene is unobstructed below. */
   @media (max-width: 720px) {
@@ -263,7 +305,14 @@
       align-items: flex-start;
       padding: clamp(64px, 18vh, 140px) clamp(20px, 6vw, 36px) 0;
     }
-    .station-inner { max-width: 90vw; }
+    .station-inner {
+      max-width: 90vw;
+      padding: clamp(16px, 4.5vw, 26px) clamp(18px, 5vw, 30px);
+      border-radius: clamp(18px, 4vw, 24px);
+      /* Lighter blur on touch devices — cheaper to composite while scrolling. */
+      -webkit-backdrop-filter: blur(12px) saturate(180%) brightness(1.03);
+      backdrop-filter: blur(12px) saturate(180%) brightness(1.03);
+    }
     .station-heading { font-size: clamp(1.7rem, 8vw, 2.6rem); }
     .station-body    { font-size: clamp(0.95rem, 3.6vw, 1.15rem); }
   }
@@ -275,7 +324,11 @@
       align-items: center;
       padding: 0 0 0 clamp(20px, 5vw, 64px);
     }
-    .station-inner { max-width: min(52vw, 480px); }
+    .station-inner {
+      max-width: min(52vw, 480px);
+      padding: clamp(12px, 3vh, 18px) clamp(16px, 2.5vw, 24px);
+      border-radius: clamp(16px, 2vh, 22px);
+    }
     .station-heading {
       font-size: clamp(1.2rem, 5vh, 2.2rem);
       line-height: 1.05;
@@ -287,7 +340,10 @@
   /* Ultrawide / 4K — let stations grow proportionally so they don't
      look like footnotes on a 27"+ monitor. */
   @media (min-width: 1800px) {
-    .station-inner { max-width: min(38vw, 760px); }
+    .station-inner {
+      max-width: min(38vw, 760px);
+      border-radius: clamp(26px, 1.6vw, 34px);
+    }
     .station-heading { font-size: clamp(2.8rem, 3vw, 5rem); }
     .station-body    { font-size: clamp(1.2rem, 1.1vw, 1.55rem); }
   }
@@ -1650,11 +1706,14 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
   const typing       = document.getElementById('typingReveal');
   const typedPrefix  = document.getElementById('typedPrefix');
   const typedAccent  = document.getElementById('typedAccent');
+  // Fade the .station-inner CARD (not the wrapper): backdrop-filter + opacity
+  // on the same element keeps the liquid-glass blur sampling the live scene all
+  // the way through the fade. (A wrapper at opacity<1 isolates the backdrop.)
   const stationEls = {
-    1: document.querySelector('.station[data-station="1"]'),
-    2: document.querySelector('.station[data-station="2"]'),
-    3: document.querySelector('.station[data-station="3"]'),
-    4: document.querySelector('.station[data-station="4"]'),
+    1: document.querySelector('.station[data-station="1"] .station-inner'),
+    2: document.querySelector('.station[data-station="2"] .station-inner'),
+    3: document.querySelector('.station[data-station="3"] .station-inner'),
+    4: document.querySelector('.station[data-station="4"] .station-inner'),
   };
 
   // Time-based typewriter, triggered by scroll entering the typing zone.

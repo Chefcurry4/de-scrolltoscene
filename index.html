@@ -79,31 +79,75 @@
      ============================================================ */
   .scroll-hint {
     position: absolute;
-    bottom: 36px;
+    bottom: 38px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     color: #14443A;
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 10px;
-    letter-spacing: 0.3em;
+    font-size: 11px;
+    letter-spacing: 0.34em;
     text-transform: uppercase;
-    opacity: 0.55;
+    opacity: 0.9;
     transition: opacity 0.6s ease;
     pointer-events: none;
     text-align: center;
   }
   .scroll-hint.hide { opacity: 0; }
-  .scroll-hint .arrow {
-    display: block;
-    margin: 14px auto 0;
-    width: 1px; height: 36px;
-    background: linear-gradient(to bottom, rgba(20,68,58,0.5), rgba(20,68,58,0));
-    animation: scrollPulse 1.8s ease-in-out infinite;
+  /* Label breathes gently so the eye lands on it without it feeling noisy. */
+  .scroll-hint .scroll-label {
+    animation: scrollLabelBreathe 2.6s ease-in-out infinite;
   }
-  @keyframes scrollPulse {
-    0%, 100% { transform: scaleY(1); opacity: 0.7; }
-    50%      { transform: scaleY(0.5) translateY(8px); opacity: 0.2; }
+  /* Vertical track the energy dot falls down — an unmistakable "scroll down"
+     cue, themed as a pulse of energy travelling the panel (brand lime on cream). */
+  .scroll-hint .scroll-track {
+    position: relative;
+    display: block;
+    width: 2px;
+    height: 48px;
+    margin: 15px auto 0;
+    border-radius: 2px;
+    background: linear-gradient(to bottom, rgba(20,68,58,0.22), rgba(20,68,58,0.04));
+  }
+  /* Glowing lime energy dot. */
+  .scroll-hint .scroll-dot {
+    position: absolute;
+    left: 50%;
+    top: -4px;
+    width: 7px;
+    height: 7px;
+    margin-left: -3.5px;
+    border-radius: 50%;
+    background: #8AE932;
+    box-shadow:
+      0 0 6px 1.5px rgba(138, 233, 50, 0.75),
+      0 0 14px 4px rgba(138, 233, 50, 0.40);
+    animation: scrollDotFall 1.9s cubic-bezier(0.55, 0, 0.45, 1) infinite;
+  }
+  /* Comet trail — a child of the dot, so it inherits the same fall + fade. */
+  .scroll-hint .scroll-dot::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    width: 2px;
+    height: 16px;
+    margin-left: -1px;
+    border-radius: 2px;
+    background: linear-gradient(to top, rgba(138, 233, 50, 0.6), rgba(138, 233, 50, 0));
+  }
+  @keyframes scrollDotFall {
+    0%   { transform: translateY(0);    opacity: 0; }
+    18%  { opacity: 1; }
+    78%  { opacity: 1; }
+    100% { transform: translateY(50px); opacity: 0; }
+  }
+  @keyframes scrollLabelBreathe {
+    0%, 100% { opacity: 0.62; }
+    50%      { opacity: 1; }
   }
 
   /* ============================================================
@@ -340,7 +384,11 @@
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .typing-text .caret      { animation: none; }
-    .scroll-hint .arrow      { animation: none; }
+    /* Stop the falling dot + label breathe; show a static glowing dot near the
+       top of the track so the scroll cue is still present without motion. */
+    .scroll-hint .scroll-label,
+    .scroll-hint .scroll-dot { animation: none; }
+    .scroll-hint .scroll-dot { top: 6px; opacity: 1; }
   }
 </style>
 
@@ -360,8 +408,8 @@
 
     <!-- Scroll hint (auto-hides on first scroll) -->
     <div class="scroll-hint" id="scrollHint">
-      Scroll to explore
-      <span class="arrow"></span>
+      <span class="scroll-label">Scroll to explore</span>
+      <span class="scroll-track"><span class="scroll-dot"></span></span>
     </div>
 
     <!-- Dim overlay for final reveal -->

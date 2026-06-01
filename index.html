@@ -1551,17 +1551,24 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     console.log('[scene]', SCENE_BUILD, 'loaded at', new Date().toISOString());
     try { window.parent.postMessage({ type: 'sceneVersion', build: SCENE_BUILD }, '*'); } catch (e) {}
 
+    // Keep the "Scroll to explore" cue visible when embedded — the parent
+    // Webflow page has no scroll cue of its own, so the iframe owns it.
+    // The iframe never scrolls internally (window.scrollY is frozen at 0),
+    // so the standalone scrollY>30 hide can't fire here; instead fade the
+    // cue out off the parent's reported progress, and bring it back near
+    // the very top. (Previously this was hard-hidden with display:none,
+    // which made the cue flash for one paint then vanish.)
+    const hintEl = document.getElementById('scrollHint');
+
     // Listen for parent scroll progress. Expected message shape:
     //   { type: 'scrollProgress', progress: 0..1 }
     window.addEventListener('message', (event) => {
       const data = event.data;
       if (data && data.type === 'scrollProgress' && typeof data.progress === 'number') {
         targetProgress = Math.max(0, Math.min(1, data.progress));
+        if (hintEl) hintEl.classList.toggle('hide', data.progress > 0.02);
       }
     });
-    // Hide the internal scroll hint when parent-controlled
-    const hintEl = document.getElementById('scrollHint');
-    if (hintEl) hintEl.style.display = 'none';
 
     // CRITICAL when embedded: collapse all internal scroll capacity so
     // wheel/touch events fall through to the parent Webflow page where

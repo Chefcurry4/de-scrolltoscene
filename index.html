@@ -478,6 +478,91 @@
   </div>
 </div>
 
+<!-- ============ LANGUAGE (English default, Italian, French) ============
+     The language comes from ?lang=it|fr in this page's address, or from the
+     parent page (dualenergy.ch) answering a 'langRequest' message with
+     { type: 'lang', lang: 'it' }. English is the markup above; only the
+     other languages need a table. -->
+<style>
+  html.lang-wait .station,
+  html.lang-wait .scroll-label,
+  html.lang-wait .typing-text { visibility: hidden; }
+</style>
+<script>
+(function () {
+  var TEXT = {
+    it: {
+      scroll: 'Scorri per esplorare',
+      typing: ["Libera il potenziale dell'", 'agrivoltaico'],
+      stations: {
+        1: ["Progettiamo impianti agrivoltaici <em>dall'inizio alla fine</em>.",
+            'Layout, inclinazione, interasse tra le file, scelta delle colture. Progettati come un unico sistema, bancabile fin dal primo studio di fattibilità.'],
+        2: ['I pannelli solari cambiano <em>il modo in cui crescono le colture</em>.',
+            'Luce, acqua, temperatura. Non subiamo il nuovo microclima: lo progettiamo per trasformarlo in resa.'],
+        3: ['Dati in tempo reale su ogni campo, <em>in ogni stagione</em>.',
+            'Una rete di sensori alimenta la piattaforma su cui sviluppatori e banche basano le loro valutazioni. 95% di accuratezza nella previsione delle rese.'],
+        4: ['Più resa. Più solare. <em>Terra migliore</em>.',
+            'Ogni ettaro lavora due volte. Per gli sviluppatori, per gli investitori, per il clima.']
+      }
+    },
+    fr: {
+      scroll: 'Faites défiler pour explorer',
+      typing: ["Libérez le potentiel de l'", 'agrivoltaïsme'],
+      stations: {
+        1: ['Nous concevons des sites agrivoltaïques <em>de bout en bout</em>.',
+            'Implantation, inclinaison, espacement des rangées, choix des cultures. Conçus comme un seul système, bancable dès la première étude de faisabilité.'],
+        2: ['Les panneaux solaires transforment <em>la croissance des cultures</em>.',
+            "Lumière, eau, température. Nous ne subissons pas le nouveau microclimat : nous le concevons pour en faire du rendement."],
+        3: ['Des données en direct sur chaque parcelle, <em>à chaque saison</em>.',
+            'Un réseau de capteurs alimente la plateforme sur laquelle développeurs et banques fondent leurs décisions. 95 % de précision dans la prévision des rendements.'],
+        4: ['Plus de rendement. Plus de solaire. <em>De meilleures terres</em>.',
+            'Chaque hectare travaille deux fois. Pour les développeurs, pour les investisseurs, pour le climat.']
+      }
+    }
+  };
+
+  function apply(lang) {
+    var t = TEXT[lang];
+    if (!t) return;
+    document.documentElement.lang = lang;
+    var cue = document.querySelector('.scroll-label');
+    if (cue) cue.textContent = t.scroll;
+    Object.keys(t.stations).forEach(function (n) {
+      var box = document.querySelector('.station[data-station="' + n + '"]');
+      if (!box) return;
+      box.querySelector('.station-heading').innerHTML = t.stations[n][0];
+      box.querySelector('.station-body').textContent = t.stations[n][1];
+    });
+    // The typed closing line lives in the scene module; hand it over both ways
+    // so it works whether the module has started yet or not.
+    window.DE_SCENE_TYPING = t.typing;
+    window.dispatchEvent(new CustomEvent('de-scene-lang', { detail: { typing: t.typing } }));
+  }
+
+  var q = null;
+  try { q = new URLSearchParams(location.search).get('lang'); } catch (e) {}
+  if (q === 'en' || TEXT[q]) { apply(q); return; }
+  if (window.parent === window) return;            // opened directly: English
+
+  // Embedded: ask the parent page, and keep the text hidden for a moment so
+  // English does not flash before the answer arrives.
+  var root = document.documentElement, settled = false;
+  root.classList.add('lang-wait');
+  function settle(lang) {
+    if (settled && !TEXT[lang]) return;
+    settled = true;
+    apply(lang);
+    root.classList.remove('lang-wait');
+  }
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (d && d.type === 'lang' && typeof d.lang === 'string') settle(d.lang);
+  });
+  try { window.parent.postMessage({ type: 'langRequest' }, '*'); } catch (e) {}
+  setTimeout(function () { settle('en'); }, 400);
+})();
+</script>
+
 <!-- ============ THREE.JS ============ -->
 <!-- Import map MUST come before any modulepreload or module script.
      BufferGeometryUtils.js internally does `import { ... } from 'three'`,
@@ -1759,9 +1844,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
   // Time-based typewriter, triggered by scroll entering the typing zone.
   // The line is split so the accent word can be tinted brand light-green
   // while the rest stays in the dark serif tone.
-  const TYPING_PREFIX   = 'Unlock the power of ';
-  const TYPING_ACCENT   = 'agrivoltaics';
-  const TYPING_TOTAL    = TYPING_PREFIX.length + TYPING_ACCENT.length;
+  let TYPING_PREFIX   = 'Unlock the power of ';
+  let TYPING_ACCENT   = 'agrivoltaics';
+  let TYPING_TOTAL    = TYPING_PREFIX.length + TYPING_ACCENT.length;
   const TYPING_SPEED_MS = 55;
   let typingTimer = null;
   let typingDone  = false;
@@ -1801,6 +1886,17 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     typingDone = false;
     typing.classList.remove('done');
   }
+
+  // Translated closing line, supplied by the LANGUAGE block in the markup.
+  function setTypingText(t) {
+    if (!t) return;
+    TYPING_PREFIX = t[0];
+    TYPING_ACCENT = t[1];
+    TYPING_TOTAL  = TYPING_PREFIX.length + TYPING_ACCENT.length;
+    resetTyping();
+  }
+  setTypingText(window.DE_SCENE_TYPING);
+  window.addEventListener('de-scene-lang', (e) => setTypingText(e.detail && e.detail.typing));
 
   function applyOverlaysForProgress(p) {
     // Intro blueprint — verticals first, then each row's horizontal +

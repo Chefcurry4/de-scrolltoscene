@@ -655,6 +655,16 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     // different speeds depending on refresh rate, the main cause of
     // the "feels laggy sometimes" jitter).
     scrollDampingRate: 9.0,
+    // Used instead of scrollDampingRate while the parent page is already
+    // smoothing the wheel (Lenis reports lenis-smooth). Two heavy filters
+    // in a row read as lag, so the scene damps less on top of Lenis.
+    scrollDampingRateSmoothed: 16.0,
+
+    // Backstop speed limit for the camera, in progress per second, for
+    // scrolling the parent does not limit itself (touch, scrollbar, keys,
+    // older drivers). Mouse and trackpad are limited by the parent driver
+    // (v7+, MAX_SPEED 0.2), so this sits a little above that. 0 = off.
+    maxProgressSpeed: 0.3,
   };
 
   // ============================================================
@@ -1588,6 +1598,13 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
   // ============================================================
   let targetProgress = 0;
   let smoothProgress = 0;
+  // True while the parent reports that Lenis is smoothing the wheel
+  // (driver v5 `smooth` field). Picks the lighter damping in tick().
+  let parentSmooths = false;
+  // False until the first real scroll position arrives; that one is
+  // applied directly so a reload mid-page doesn't fly through the film
+  // at the speed cap.
+  let progressPrimed = false;
   const scrollContainer = document.getElementById('scrollytelling');
 
   // Detect if this scene is embedded as an iframe inside another page.
@@ -1600,27 +1617,68 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
   // moves at first, then accelerates into the identity middle. This
   // is the "settle in" you feel at the top of the scene — the user
   // can land in the section and start scrolling without the camera
-  // immediately yanking forward. Quadratic ease-in: f(0)=0, f(0.30)=0.30,
-  // slope is 0 at start, 2 at the join (slight kink absorbed by damping).
+  // immediately yanking forward. Cubic ease-in: f(0)=0, f(0.30)=0.30,
+  // slope is 0 at start and exactly 1 at the join, so there is no speed
+  // jump at 0.30 (the old quadratic jumped from slope 2 to 1 there).
   function easeStart(linear) {
     if (linear >= 0.30) return linear;
     const t = linear / 0.30;
-    return 0.30 * t * t;
+    return 0.30 * (2 * t * t - t * t * t);
   }
 
   // Natural decel on the final ~30% of scroll. The scene reaches its
   // final composition quickly, then visibly slows so the logo lingers
-  // without the hard "stuck" feel of a hold-tail clamp. easeOutCubic
-  // pushes most of the visual change into the first half of the tail
-  // and asymptotes near 1.0, so the user can keep scrolling and the
-  // section releases without ever feeling locked.
+  // without the hard "stuck" feel of a hold-tail clamp. The cubic
+  // t + t² − t³ starts at slope 1 (no speed jump at 0.7; the old
+  // easeOutCubic jumped to 3× speed there) and lands at slope 0, so the
+  // logo still settles and the section releases without feeling locked.
   function easeTail(linear) {
     if (linear <= 0.7) return linear;
     const t = (linear - 0.7) / 0.3;
-    return 0.7 + (1 - Math.pow(1 - t, 3)) * 0.3;
+    return 0.7 + (t + t * t - t * t * t) * 0.3;
+  }
+
+  // Cubic Hermite through (xs[i], ys[i]). Segment k leaves xs[k] with
+  // slope mOut[k] and arrives at xs[k+1] with slope mIn[k+1]; pass the
+  // same array twice for an ordinary C1 spline. Clamped outside the range.
+  function hermiteMap(xs, ys, mOut, mIn) {
+    const n = xs.length;
+    return function (x) {
+      if (x <= xs[0]) return ys[0];
+      if (x >= xs[n - 1]) return ys[n - 1];
+      let k = 0;
+      while (k < n - 2 && xs[k + 1] <= x) k++;
+      const h = xs[k + 1] - xs[k];
+      const s = (x - xs[k]) / h;
+      const s2 = s * s, s3 = s2 * s;
+      return (2 * s3 - 3 * s2 + 1) * ys[k] + (s3 - 2 * s2 + s) * h * mOut[k]
+           + (3 * s2 - 2 * s3) * ys[k + 1] + (s3 - s2) * h * mIn[k + 1];
+    };
+  }
+
+  // Monotone C1 slopes for a plain spline (Fritsch–Butland / PCHIP):
+  // no overshoot, flat where the data turns around.
+  function pchipSlopes(xs, ys) {
+    const n = xs.length, h = [], d = [], m = new Array(n);
+    for (let k = 0; k < n - 1; k++) {
+      h.push(xs[k + 1] - xs[k]);
+      d.push((ys[k + 1] - ys[k]) / h[k]);
+    }
+    m[0] = d[0];
+    m[n - 1] = d[n - 2];
+    for (let i = 1; i < n - 1; i++) {
+      if (d[i - 1] * d[i] <= 0) { m[i] = 0; continue; }
+      const w1 = 2 * h[i] + h[i - 1], w2 = h[i] + 2 * h[i - 1];
+      m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]);
+    }
+    return m;
   }
 
   function updateScrollProgress() {
+    // Embedded: the iframe never scrolls (scrollY is always 0), so a
+    // resize here used to reset the camera to the start until the parent
+    // posted again. The parent's messages are the only source.
+    if (isEmbedded) return;
     const total = scrollContainer.offsetHeight - window.innerHeight;
     if (total <= 0) { targetProgress = 0; return; }
     const linear = Math.max(0, Math.min(1, window.scrollY / total));
@@ -1632,7 +1690,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     // current build (not a cached old one). Visible both in this iframe's
     // console AND echoed up to the parent so it shows in the Webflow
     // page console without needing to switch frame context.
-    const SCENE_BUILD = 'embedded-wheel-passthrough-v3';
+    const SCENE_BUILD = 'scroll-v7-wheel-forward';
     console.log('[scene]', SCENE_BUILD, 'loaded at', new Date().toISOString());
     try { window.parent.postMessage({ type: 'sceneVersion', build: SCENE_BUILD }, '*'); } catch (e) {}
 
@@ -1645,14 +1703,43 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     // which made the cue flash for one paint then vanish.)
     const hintEl = document.getElementById('scrollHint');
 
-    // Listen for parent scroll progress. Expected message shape:
-    //   { type: 'scrollProgress', progress: 0..1 }
+    // Listen for parent scroll progress. Message shape:
+    //   { type: 'scrollProgress', progress: 0..1,     (eased, all drivers)
+    //     linear: 0..1, smooth: bool }                (driver v5+, optional)
+    // With `linear` the scene does its own easing (one source of truth);
+    // older drivers send only `progress`, which already has the tail ease.
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+    // Wheel forwarding (driver v7+). When the parent offers it, mouse and
+    // trackpad scrolling no longer chains natively out of the iframe:
+    // each wheel delta is posted up instead, and the parent moves the page
+    // at a capped speed, stopping at the caption stations. Touch is not
+    // affected. Without the offer (older drivers) nothing changes.
+    let forwardWheel = false;
+    window.addEventListener('wheel', (e) => {
+      if (!forwardWheel || e.ctrlKey) return;             // keep pinch-zoom
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      try {
+        window.parent.postMessage({ type: 'wheel', deltaY: e.deltaY, deltaMode: e.deltaMode }, '*');
+      } catch (err) {}
+    }, { passive: false });
+
     window.addEventListener('message', (event) => {
       const data = event.data;
-      if (data && data.type === 'scrollProgress' && typeof data.progress === 'number') {
-        targetProgress = Math.max(0, Math.min(1, data.progress));
-        if (hintEl) hintEl.classList.toggle('hide', data.progress > 0.02);
+      if (!data) return;
+      if (data.type === 'wheelControl' && event.source === window.parent) {
+        forwardWheel = data.on === true;
+        try { window.parent.postMessage({ type: 'wheelControlAck', on: forwardWheel }, '*'); } catch (err) {}
+        return;
       }
+      if (data.type !== 'scrollProgress') return;
+      if (typeof data.linear === 'number') targetProgress = easeTail(clamp01(data.linear));
+      else if (typeof data.progress === 'number') targetProgress = clamp01(data.progress);
+      else return;
+      if (!progressPrimed) { smoothProgress = targetProgress; progressPrimed = true; }
+      parentSmooths = data.smooth === true;
+      if (hintEl) hintEl.classList.toggle('hide', targetProgress > 0.02);
     });
 
     // CRITICAL when embedded: collapse all internal scroll capacity so
@@ -1681,6 +1768,13 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     // Standalone mode — use our own scroll listener
     window.addEventListener('scroll', () => {
       updateScrollProgress();
+      // First scroll event (often the browser restoring the position on
+      // reload): jump there instead of flying at the speed cap.
+      // (A small first step is a real user scroll and is damped as usual.)
+      if (!progressPrimed) {
+        if (Math.abs(targetProgress - smoothProgress) > 0.05) smoothProgress = targetProgress;
+        progressPrimed = true;
+      }
       if (window.scrollY > 30) hint.classList.add('hide');
     }, { passive: true });
   }
@@ -1741,22 +1835,60 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     return 1 - (p - 0.84) / 0.04;
   }
 
-  // Remap scroll progress (using keyframe t values) onto the
-  // curve's uniform parameter space.
-  function progressToCurveU(p) {
+  // Remap scroll progress (using keyframe t values) onto the curve's
+  // uniform parameter space, one map per curve.
+  //
+  // The old map smoothstepped each segment, which brought the camera to
+  // a full stop at all 13 keyframes and ran it at 1.5× average speed in
+  // between (a lurch every keyframe). This map is a monotone cubic
+  // Hermite whose slopes are chosen so the camera's world speed is the
+  // same on both sides of every keyframe (the curve itself changes speed
+  // at its knots, so the two sides need different slopes). Each keyframe
+  // is still reached exactly at its t.
+  const curveUMap = (curve) => {
     const n = cameraKeyframes.length;
-    let i = 0;
-    while (i < n - 1 && cameraKeyframes[i + 1].t <= p) i++;
-    if (i >= n - 1) return 1;
-    const a = cameraKeyframes[i];
-    const b = cameraKeyframes[i + 1];
-    const span = (b.t - a.t) || 1;
-    const localT = Math.max(0, Math.min(1, (p - a.t) / span));
-    // Smoothstep the local segment too — subtle, takes the edge off
-    // segment-boundary velocity changes
-    const eased = smoothstep(localT);
-    return (i + eased) / (n - 1);
-  }
+    const ts = cameraKeyframes.map(k => k.t);
+    const us = ts.map((_, i) => i / (n - 1));
+    const du = 1 / (n - 1), eps = du * 1e-3;
+    const a = new THREE.Vector3(), b = new THREE.Vector3();
+    const dist = (u0, u1) => curve.getPoint(u0, a).distanceTo(curve.getPoint(u1, b));
+    // Average world speed per unit progress on each segment.
+    const avg = [];
+    for (let k = 0; k < n - 1; k++) {
+      let len = 0;
+      for (let s = 0; s < 24; s++) len += dist(us[k] + du * s / 24, us[k] + du * (s + 1) / 24);
+      avg.push(len / (ts[k + 1] - ts[k]));
+    }
+    const mIn = new Array(n), mOut = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const aL = i > 0 ? avg[i - 1] : avg[0];
+      const aR = i < n - 1 ? avg[i] : avg[n - 2];
+      const speed = (aL + aR) > 0 ? 2 * aL * aR / (aL + aR) : 0;   // harmonic mean
+      const vIn  = i > 0     ? dist(us[i] - eps, us[i]) / eps : 0;
+      const vOut = i < n - 1 ? dist(us[i], us[i] + eps) / eps : 0;
+      mIn[i]  = i > 0     ? (vIn  > 1e-6 ? speed / vIn  : du / (ts[i] - ts[i - 1])) : 0;
+      mOut[i] = i < n - 1 ? (vOut > 1e-6 ? speed / vOut : du / (ts[i + 1] - ts[i])) : 0;
+    }
+    // Fritsch–Carlson: keep every segment monotone (no back-tracking).
+    for (let k = 0; k < n - 1; k++) {
+      const secant = du / (ts[k + 1] - ts[k]);
+      const al = mOut[k] / secant, be = mIn[k + 1] / secant;
+      const r = al * al + be * be;
+      if (r > 9) { const tau = 3 / Math.sqrt(r); mOut[k] *= tau; mIn[k + 1] *= tau; }
+    }
+    return hermiteMap(ts, us, mOut, mIn);
+  };
+  const positionU = curveUMap(positionCurve);
+  const targetU   = curveUMap(targetCurve);
+
+  // FOV — monotone C1 spline through the keyframe FOVs (the old per-
+  // segment smoothstep stopped the zoom at every keyframe).
+  const fovAt = (() => {
+    const ts = cameraKeyframes.map(k => k.t);
+    const fovs = cameraKeyframes.map(k => k.fov);
+    const m = pchipSlopes(ts, fovs);
+    return hermiteMap(ts, fovs, m, m);
+  })();
 
   // Reusable vectors to avoid allocations every frame
   const _posVec = new THREE.Vector3();
@@ -1764,10 +1896,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
   const _viewDir = new THREE.Vector3();
 
   function applyCameraForProgress(p) {
-    const u = progressToCurveU(p);
-
-    positionCurve.getPoint(u, _posVec);
-    targetCurve.getPoint(u, _tgtVec);
+    positionCurve.getPoint(positionU(p), _posVec);
+    targetCurve.getPoint(targetU(p), _tgtVec);
 
     // ============================================================
     // Aspect-aware portrait correction.
@@ -1804,21 +1934,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     camera.position.copy(_posVec);
     camera.lookAt(_tgtVec);
 
-    // FOV — simple eased interpolation (no curve needed for a scalar)
-    let i = 0;
-    while (i < cameraKeyframes.length - 1 && cameraKeyframes[i + 1].t <= p) i++;
-    let baseFov;
-    if (i >= cameraKeyframes.length - 1) {
-      baseFov = cameraKeyframes[cameraKeyframes.length - 1].fov;
-    } else {
-      const a = cameraKeyframes[i];
-      const b = cameraKeyframes[i + 1];
-      const localT = (p - a.t) / ((b.t - a.t) || 1);
-      const eased = smoothstep(Math.max(0, Math.min(1, localT)));
-      baseFov = lerp(a.fov, b.fov, eased);
-    }
     // Widen FOV on portrait for the same reason — preserve framing
-    camera.fov = baseFov + (6 * portraitFactor);
+    camera.fov = fovAt(p) + (6 * portraitFactor);
     camera.updateProjectionMatrix();
   }
 
@@ -2043,8 +2160,20 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     if (rawDt > 0.25) smoothProgress = targetProgress;
     const dt = Math.min(0.05, rawDt);            // clamp huge jumps (tab back-foreground)
     lastTickT = t;
-    const alpha = 1 - Math.exp(-CONFIG.scrollDampingRate * dt);
-    smoothProgress += (targetProgress - smoothProgress) * alpha;
+    const rate = parentSmooths ? CONFIG.scrollDampingRateSmoothed : CONFIG.scrollDampingRate;
+    const alpha = 1 - Math.exp(-rate * dt);
+    let step = (targetProgress - smoothProgress) * alpha;
+    // Soft speed cap: a fast fling no longer drags the camera through the
+    // film at page speed. x / (1 + x⁴)^¼ leaves normal scrolling almost
+    // untouched (−1.5% at half the cap) and bends big steps smoothly onto
+    // maxProgressSpeed, so the camera's speed has no corner where the cap
+    // kicks in or lets go. The camera then catches up on its own.
+    const maxStep = CONFIG.maxProgressSpeed * dt;
+    if (maxStep > 0) {
+      const x = step / maxStep;
+      step /= Math.pow(1 + x * x * x * x, 0.25);
+    }
+    smoothProgress += step;
 
     // Panel tracking — visibly sweep through the day across the
     // cinematic, with a tighter "live tracking" gesture during the
@@ -2320,6 +2449,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
   // GO
   // ============================================================
   updateScrollProgress();
+  smoothProgress = targetProgress;   // start where the page already is
   // Pre-warm: compile shaders + draw one frame before the first user
   // scroll, so the first scroll tick doesn't hit a cold pipeline.
   renderer.compile(scene, camera);
